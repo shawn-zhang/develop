@@ -1,0 +1,9 @@
+*.[oa]
+*.l[oa]
+*.so
+*.diff
+*.dep
+*.gz
+*.txt
+*.html
+*.uo

@@ -1,0 +1,1 @@
+cmd_/home/shawn/otherwork/test/qamPwmConfig/opQam.ko := arm-hisiv200-linux-ld -EL -r  -T /home/shawn/product/Hi3716XV100R001C00SPC0A1/source/osdrv/kernel/linux-2.6.35/scripts/module-common.lds --build-id -o /home/shawn/otherwork/test/qamPwmConfig/opQam.ko /home/shawn/otherwork/test/qamPwmConfig/opQam.o /home/shawn/otherwork/test/qamPwmConfig/opQam.mod.o
