@@ -1,0 +1,3 @@
+TARGET_CPU_ABI := armeabi
+BOARD_USES_GENERIC_AUDIO := true
+

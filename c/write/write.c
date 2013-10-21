@@ -5,9 +5,14 @@
 #include <sys/stat.h>
 #include <string.h>
 
+#define XXX
 
 int main(int argc , char **argv)
 {
+
+#ifdef XXX
+#pragma message("test*************************************")
+#endif
 	char buf[5];
 	int ret = 0;
 	int fd;
