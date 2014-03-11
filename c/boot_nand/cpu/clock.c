@@ -1,0 +1,20 @@
+#include <common/common.h>
+#include <cpu/clock.h>
+
+
+int clock_init(void)
+{
+	APLL_CON = PLL_ENABLE | MDIV(266) | PDIV(3) | SDIV(1);
+	MPLL_CON = PLL_ENABLE | MDIV(266) | PDIV(3) | SDIV(2);
+	EPLL_CON0 = PLL_ENABLE | MDIV(0x20) | PDIV(0x1) | SDIV(0x2);
+	EPLL_CON1 = KDIV(0);
+	
+	SYNCMUXSEL;
+	SYNC667;
+	
+	CLK_SRC = APLL_SEL | MPLL_SEL | EPLL_SEL;
+	
+	CLK_DIV0 = ARM_RATIO(0) | MPLL_RATIO(1) | HCLK_RATIO(1) | HCLKX2_RATIO(0) | PCLK_RATIO(3) | CLKJPEG_RATIO(3) | CLKSECUR_RATIO(3);
+
+	return 0;
+}

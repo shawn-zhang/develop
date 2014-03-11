@@ -1,0 +1,162 @@
+#include <common/common.h>
+#include <driver/dram.h>
+
+#define HCLK	133000000.0
+#define ns2cycle(ns) (ns / (1000000000.0 / HCLK))
+
+/*void dram_init(void)
+{
+	set_0(MEM_SYS_CFG, 7);	//6410.pdf p160
+
+	
+	//config
+	P1MEMCCMD = 4;
+
+	//K4X51163PC.pdf p1
+    //Memory refresh period in memory clock cycles.
+	//P1REFRESH = ns2cycle(7800);
+	P1REFRESH = 1012;
+
+	
+	//CAS latency in memory clock cycles.
+	P1CASLAT = (3 << 1);
+
+	//K4X51163PC.pdf p13	
+
+	//Write to DQS in memory clock cycles.
+	P1T_DQSS = 1;	
+
+	//Set mode register command time in memory clock cycles.
+	P1T_MRD = 2;
+
+	//Set RAS to precharge delay in memory clock cycles.
+	//P1T_RAS = ns2cycle(45);
+	P1T_RAS   = 7;
+
+	//Set Active bank x to Active bank x delay in memory clock cycles.
+	//P1T_RC  = ns2cycle(68);
+	P1T_RC    = 0xb;
+
+	//Set t_RCD-3, Set the RAS to CAS minimum delay in memory clock cycles
+	//tmp = ns2cycle(23);
+	//P1T_RCD = ((tmp - 3) << 3) | tmp;
+	P1T_RCD   = 5 | (2 << 3);
+
+	//Set t_RFC-3, Set the autorefresh command time in memory clock cycles
+	//tmp = ns2cycle(80);
+	//P1T_RFC = ((tmp - 3) << 5) | tmp;
+	P1T_RFC   = 12 | (9 << 5);
+
+	//Set t_RP-3, Set the precharge to RAS delay in memory clock cycles
+	//tmp = ns2cycle(23);
+	//P1T_RP  = ((tmp - 3) << 3) | tmp;
+	P1T_RP    = 4 | (1 << 3);
+
+	//Set Active bank x to Active bank y delay in memory clock cycles.
+	//P1T_RRD = ns2cycle(15);
+	P1T_RRD   = 3;	
+
+	//Set the write to precharge delay in memory clock cycles.
+	//P1T_WR  = ns2cycle(15);
+	P1T_WR    = 3;		
+
+	//Set the write to read delay in memory clock cycles.
+	//P1T_WTR = 1;  //tCDLR
+	P1T_WTR = 3;  //tCDLR
+
+	//Set the exit power down command time in memory clock cycles.
+	//P1T_XP  = 9;  //tPDEX
+	P1T_XP  = 1;  //tPDEX
+
+	//Set the exit self refresh command time in memory clock cycles.
+	//P1T_XSR = ns2cycle(120);
+	P1T_XSR	  = 18;
+
+	//Set the self refresh command time in memory clock cycles.
+	//P1T_ESR = ns2cycle(120);
+	P1T_ESR   = 18;
+
+
+
+	//Culumn = 10  Row = 13	 Burst 4
+	P1MEMCFG = 2 | (2 << 3) | (2 << 15);
+	
+	//Width = 32 Type = Mobile DDR SDRAM Delay = 1
+	P1MEMCFG2 =  (1 << 6) | (3 << 8) | (1 << 11);
+
+
+
+	//6410.pdf p192*/
+	/* init memory command */
+	/*P1DIRECTCMD = (2 << 18);  //NOP
+	P1DIRECTCMD = (0 << 18);  //precharge all
+	P1DIRECTCMD = (3 << 18) ;  //auto refresh
+	P1DIRECTCMD = (3 << 18) ;  //auto refresh
+	
+	P1DIRECTCMD = (2 << 18) | (2 << 16); 	//EMRS K4X51163PC.pdf p8
+	*/
+	/* CL=3  Burst=4 */
+	//P1DIRECTCMD = (2 << 18) | (3 << 4) | 2;	//MRS	K4X51163PC.pdf p6
+	
+	//go
+	//P1MEMCCMD = 0;
+
+	/*while(!(P1MEMSTAT & 1));
+}
+*/
+
+void dram_init(void)
+{
+	MEM_SYS_CFG  = (0 << 7);
+
+	P1MEMCCMD = 4;			
+
+	//timing line
+	/* Refresh period = (211-refresh_count+1)/HCLK
+		7.8 us	  =  (211 - refresh_count + 1) / 133M
+	        7.8 * 133M = 211 - refresh_count + 1
+	        2^11 - 7.8 * 133  +  1 = refresh_count
+	         2049 - 1037 = 1012
+	*/
+	P1REFRESH = 1012;
+	P1CASLAT  = (3 << 1);
+	P1T_DQSS  = 1;
+	P1T_MRD   = 2;	
+	P1T_RAS   = 7;
+	P1T_RC    = 0xb;
+	P1T_RCD   = 5 | (2 << 3);
+	P1T_RFC   = 12 | (9 << 5);
+	P1T_RP    = 4 | (1 << 3);
+	P1T_RRD   = 3;	
+	P1T_WR    = 3;		
+	P1T_WTR   = 3;
+	P1T_XP    = 1;
+	P1T_XSR	  = 18;
+	P1T_ESR   = 18;
+
+	//chip configure
+	P1MEMCFG = 2 | (2 << 3) |  (2 << 15);
+	P1MEMCFG2 =  1 | (1 << 6) | ( 3 << 8) | (1 << 11);
+	P1MEMCFG3 =  7;
+	P1_chip_0_cfg = (0xff << 8) | (1 << 16);
+
+	int i;
+	for (i = 0; i < 0x20000; i ++) {
+		;
+	}	
+
+	// mobile-ddr init squeue
+	P1DIRECTCMD = (2 << 18);
+	P1DIRECTCMD = (0 << 18);
+	P1DIRECTCMD = (3 << 18);
+	P1DIRECTCMD = (3 << 18);
+	
+	P1DIRECTCMD = (2 << 18) | (2 << 16);
+	P1DIRECTCMD = (2 << 18) | 2 | (3 << 4);	
+
+	// for 'Ready'	
+	P1MEMCCMD = 0;			
+
+	while ( (P1MEMSTAT & 1) == 0)
+		;
+}
