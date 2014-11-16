@@ -1,0 +1,46 @@
+#include <linux/kernel.h>
+#include <linux/module.h>
+
+#include <net/sock.h>
+#include <net/netlink.h>
+
+#define NLMSG_GETECHO (0x10 + 2)
+
+static struct sock *my_nl_sock;
+
+static int my_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
+{
+        int type;
+        char *data;
+
+        type = nlh->nlmsg_type;
+
+        printk("%s: recive msg\n", __func__);
+        return 0;
+}
+
+static void my_nl_rcv_msg(struct sk_buff *skb)
+{
+        netlink_rcv_skb(skb, &my_rcv_msg);
+}
+
+static int __init my_init(void)
+{
+        my_nl_sock = netlink_kernel_create(&init_net, 17, 0, my_nl_rcv_msg, NULL, THIS_MODULE);
+        if (!my_nl_sock) {
+            printk(KERN_ERR "%s: receive handler registration failed\n", __func__);
+                return -ENOMEM;
+        }else
+           printk("register ok\n");
+        
+        return 0;
+}
+
+static void __exit my_exit(void)
+{
+        if (my_nl_sock) {
+            netlink_kernel_release(my_nl_sock);
+        }
+}
+module_init(my_init);
+module_exit(my_exit);

@@ -35,38 +35,38 @@ import mokoid.hardware.ILedService;
  */
 public class LedManager
 {
-    private static final String TAG = "LedManager";
-    private ILedService mLedService;
+        private static final String TAG = "LedManager";
+        private ILedService mLedService;
 
-    public LedManager() {
-	
-        mLedService = ILedService.Stub.asInterface(
-                             ServiceManager.getService("led"));
+        public LedManager() {
 
-	if (mLedService != null) {
-            Log.i(TAG, "The LedManager object is ready.");
-	}
-    }
+                mLedService = ILedService.Stub.asInterface(
+                                ServiceManager.getService("led"));
 
-    public boolean LedOn(int n) {
-        boolean result = false;
-
-        try {
-            result = mLedService.setOn(n);
-        } catch (RemoteException e) {
-            Log.e(TAG, "RemoteException in LedManager.LedOn:", e);
+                if (mLedService != null) {
+                        Log.i(TAG, "The LedManager object is ready.");
+                }
         }
-        return result;
-    }
 
-    public boolean LedOff(int n) {
-        boolean result = false;
+        public boolean LedOn(int n) {
+                boolean result = false;
 
-        try {
-            result = mLedService.setOff(n);
-        } catch (RemoteException e) {
-            Log.e(TAG, "RemoteException in LedManager.LedOff:", e);
+                try {
+                        result = mLedService.setOn(n);
+                } catch (RemoteException e) {
+                        Log.e(TAG, "RemoteException in LedManager.LedOn:", e);
+                }
+                return result;
         }
-        return result;
-    }
+
+        public boolean LedOff(int n) {
+                boolean result = false;
+
+                try {
+                        result = mLedService.setOff(n);
+                } catch (RemoteException e) {
+                        Log.e(TAG, "RemoteException in LedManager.LedOff:", e);
+                }
+                return result;
+        }
 }
