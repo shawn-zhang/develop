@@ -14,7 +14,9 @@ namespace test
 			//std::vector<int> v;
 			int t;
 	};
-	
+    class empty
+    {
+    };
 }
 #endif
 

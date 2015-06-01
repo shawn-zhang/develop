@@ -7,6 +7,7 @@ base::base(int a)
 {	
 	printf("[%s,%d] .\n",__FUNCTION__,__LINE__);
 	printf("T is %d \n",t);
+    empty *e = new empty();
 }
 base::~base()
 {
