@@ -1,0 +1,38 @@
+
+Android media struct
+
+framework/av/
+
+1. camera
+2. media
+3. services
+4. include
+
+1. camera
+   camera作为一个独立的media模块单独对外提供接口，并没有集成在libmedia.so中，他会独立编译成libcamera.so,对外提供接口
+   ICameraClient.cpp  ICamera.cpp  ICameraRecordingProxy.cpp  ICameraRecordingProxyListener.cpp  ICameraService.cpp  ICameraServiceListener.cpp  IProCameraCallbacks.cpp  IProCameraUser.cpp
+2. services
+   services目录包括了当前media模块除了mediplayerService之外的其他所有的独立service，包括audioflinger, cameraService, audiopolicyservice,mediaLog等服务.
+3. media
+   media作为一个非常复杂的模块，其内部有分成了几个子模块，以方便解偶, 其内部也包含了audioflinger的对外接口，对外，除了camera的即可，都是由libmedia.so对外提供接口。
+1). libmedia
+2). libmediaplayerservice
+3). libstagefright
+
+1). libmedia目录
+   libmedia.so是整个底层media实现对外的接口，mediaplayer都是通过libmedia.so与mediaPlayerService进行通信。libmedia中定义并实现了所有的IMedia*的Binder接口，提供给MediaPlayer或者其他模块使用。
+   IAudioFlingerClient.cpp        IAudioRecord.cpp  IDrm.cpp           IMediaCodecList.cpp       IMediaLogService.cpp         IMediaPlayerService.cpp   IRemoteDisplayClient.cpp
+   IAudioFlinger.cpp              IAudioTrack.cpp   IEffectClient.cpp  IMediaDeathNotifier.cpp   IMediaMetadataRetriever.cpp  IMediaRecorderClient.cpp  IRemoteDisplay.cpp
+   IAudioPolicyServiceClient.cpp  ICrypto.cpp       IEffect.cpp        IMediaHTTPConnection.cpp  IMediaPlayerClient.cpp       IMediaRecorder.cpp        IStreamSource.cpp
+   IAudioPolicyService.cpp        IDrmClient.cpp    IHDCP.cpp          IMediaHTTPService.cpp     IMediaPlayer.cpp             IOMX.cpp
+
+   IMediaMetaDataRetiever: 通过MediaPlayerService提取(Retriever)MetaData，也就是封装格式的解析.实现类是libmedia/MediaMetaDataRetriever.cpp
+   IAudioFlinger.cpp:      AudioFlinger对外提供接口。
+   IAudioPolicyService.cpp: AudioPolicyService对外部提供接口，比如获取音频out通道。
+   IAudioRecord.cpp, IAudioTrack.cpp 音频录制和播放接口，服务是AudioFlinger
+
+2). libMediaPlayerService
+   系统中MediaPlayer的具体实现，逻辑的控制。
+3). libstagefright
+   目前Android中使用的播放框架，类似ffmpeg,执行具体的播控逻辑，挂载解码库等。
+

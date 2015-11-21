@@ -1,0 +1,111 @@
+    Linux中的可执行程序的格式是elf,当然也可以注册其他格式来执行程序。Linux内核既支持静态链接的ELF映像，也支持动态链接的ELF映像，而且装入/启动ELF映像必需由内核完成，而动态连接的实现则既可以在内核中完成，也可在用户空间完成。因此，GNU把对于动态链接ELF映像的支持作了分工：把ELF映像的装入/启动入在Linux内核中；而把动态链接的实现放在用户空间（glibc），并为此提供一个称为“解释器”（ld-linux.so.2）的工具软件，而解释器的装入/启动也由内核负责，这在后面我们分析ELF文件的加载时就可以看到。
+    Linux可执行文件类型的注册机制
+    在说明ELF文件的加载过程以前，我们先回答一个问题，就是：为什么Linux可以运行ELF文件？
+    回答：内核对所支持的每种可执行的程序类型都有个struct linux_binfmt的数据结构，定义如下：
+    /*
+     * This structure defines the functions that are used to load the binary formats that
+     * linux accepts.
+     */
+     struct linux_binfmt {
+         struct linux_binfmt * next;
+         struct module *module;
+         int (*load_binary)(struct linux_binprm *, struct  pt_regs * regs);
+         int (*load_shlib)(struct file *)
+         int (*core_dump)(long signr, struct pt_regs * regs, struct file * file);
+         unsigned long min_coredump;     /* minimal dump size */
+        int hasvdso;
+    };
+    其中的load_binary函数指针指向的就是一个可执行程序的处理函数。而我们研究的ELF文件格式的定义如下：
+    static struct linux_binfmt elf_format = {
+        .module      = THIS_MODULE,
+        .load_binary = load_elf_binary,
+        .load_shlib      = load_elf_library,
+        .core_dump       = elf_core_dump,
+        .min_coredump    = ELF_EXEC_PAGESIZE,
+        .hasvdso     = 1
+    };
+    要支持ELF文件的运行，则必须向内核登记这个数据结构，加入到内核支持的可执行程序的队列中。内核提供两个函数来完成这个功能，一个注册，一个注销，即：
+    int register_binfmt(struct linux_binfmt * fmt)
+    int unregister_binfmt(struct linux_binfmt * fmt)
+    当需要运行一个程序时，则扫描这个队列，让各个数据结构所提供的处理程序，ELF中即为load_elf_binary，逐一前来认领，如果某个格式的处理程序发现相符后，便执行该格式映像的装入和启动。
+    内核中实际执行execv()或execve()系统调用的程序是do_execve()，这个函数先打开目标映像文件，并从目标文件的头部（第一个字节开始）读入若干（当前Linux内核中是128）字节（实际上就是填充ELF文件头，下面的分析可以看到），然后调用另一个函数search_binary_handler()，在此函数里面，它会搜索我们上面提到的Linux支持的可执行文件类型队列，让各种可执行程序的处理程序前来认领和处理。如果类型匹配，则调用load_binary函数指针所指向的处理函数来处理目标映像文件。在ELF文件格式中，处理函数是load_elf_binary函数，下面主要就是分析load_elf_binary函数的执行过程（说明：因为内核中实际的加载需要涉及到很多东西，这里只关注跟ELF文件的处理相关的代码）：
+    参见http://jzhihui.iteye.com/blog/1447570
+
+
+ELF文件中符号的动态解析过程
+    上面一节提到，控制权是先交到解释器，由解释器加载动态库，然后控制权才会到用户程序。因为时间原因，动态库的具体加载过程，并没有进行深入分析。大致的过程就是将每一个依赖的动态库都加载到内存，并形成一个链表，后面的符号解析过程主要就是在这个链表中搜索符号的定义。
+    首先程序在编译的时候就生成了plt表，这个plt表的每一项都对应到got表中的每一项，plt表是指procedure linkage table,也就是过程连接表，每一项需要调用的外部函数都需要一个plt表。Android上实在程序启动的时候会将每一个got表中需要确定地址的函数都确定地址并且修改got表中对应的函数地址。在Linux上使用一种叫lazy的加载方式，也就是第一次调用的时候会查找这个函数的地址并且将其映射到got表中。为了实现这个过程，linux上提过了_dl_runtime_resolve函数来进行函数映射。
+    android举例:
+    arm-android-linux-objdump -D app_process > app_process.asm
+    打开asm文件，在plt表中找到getenv@plt函数
+    
+    当有函数调用getenv时:
+    1a40:   f7ff ebe2   blx 1208 <getenv@plt>
+    
+    getenv的plt表
+    00001208 <getenv@plt>:
+    1208:   e28fc600    add ip, pc, #0, 12    //ip = pc + 0 = 1210;
+    120c:   e28cca04    add ip, ip, #4, 20  ; 0x4000
+    1210:   e5bcfd24    ldr pc, [ip, #3364]!    ; 0xd24
+
+    这三条语句的执行结果是:
+    ip(0x1210) = pc(0x1210) + 0;
+    ip(0x5210) = ip(0x1210) + 0x4000;
+    pc([5f34]) = [ip(0x5210) + 0xd24]
+    
+    在got表中查找0x5f34
+
+    00005ed0 <_GLOBAL_OFFSET_TABLE_-0x2c>:
+    5ed0:   00005d40    andeq   r5, r0, r0, asr #26
+    5ed4:   00005d48    andeq   r5, r0, r8, asr #26
+    5ed8:   00005d54    andeq   r5, r0, r4, asr sp
+    5edc:   0000146d    andeq   r1, r0, sp, ror #8
+    5ee0:   00005d60    andeq   r5, r0, r0, ror #26
+    5ee4:   00005cd8    ldrdeq  r5, [r0], -r8
+    ...
+    5ef0:   000025cd    andeq   r2, r0, sp, asr #11
+    5ef4:   00002629    andeq   r2, r0, r9, lsr #12
+    5ef8:   00002621    andeq   r2, r0, r1, lsr #12
+
+    00005efc <_GLOBAL_OFFSET_TABLE_>:
+    ...
+    5f08:   00001170    andeq   r1, r0, r0, ror r1
+    5f0c:   00001170    andeq   r1, r0, r0, ror r1
+    5f10:   00001170    andeq   r1, r0, r0, ror r1
+    5f14:   00001170    andeq   r1, r0, r0, ror r1
+    5f18:   00001170    andeq   r1, r0, r0, ror r1
+    5f1c:   00001170    andeq   r1, r0, r0, ror r1
+    5f20:   00001170    andeq   r1, r0, r0, ror r1
+    5f24:   00001170    andeq   r1, r0, r0, ror r1
+    5f28:   00001170    andeq   r1, r0, r0, ror r1
+    5f2c:   00001170    andeq   r1, r0, r0, ror r1
+    5f30:   00001170    andeq   r1, r0, r0, ror r1
+    
+    5f34:   00001170    andeq   r1, r0, r0, ror r1
+
+    5f38:   00001170    andeq   r1, r0, r0, ror r1
+    5f3c:   00001170    andeq   r1, r0, r0, ror r1
+
+    0x5f34的内容是00001170，并且发现所有的got表的内容都是00001170,这是因为程序不是在执行过程中，所以没有进行got表的映射。
+    查看00001170的指令。
+
+    Disassembly of section .plt:
+
+    00001170 <__libc_init@plt-0x14>:
+    1170:   e52de004    push    {lr}        ; (str lr, [sp, #-4]!)
+    1174:   e59fe004    ldr lr, [pc, #4]    ; 1180 <abitag+0x1018>
+    1178:   e08fe00e    add lr, pc, lr
+    117c:   e5bef008    ldr pc, [lr, #8]!
+    1180:   00004d7c    andeq   r4, r0, ip, ror sp
+    
+    发现是plt[0]的内容，指令执行顺序是：
+    push {lr}  lr保存到内存
+    ldr lr, [pc, #4]  lr(00004d7c) = [pc(117c) + 4];
+    add lr, pc, lr    lr(5efc) = pc(1180) + lr(00004d7c)
+    ldr pc, [lr, #8]! pc([5f04]) = [lr(5efc) + 8] 并且将lr+8写回到lr.
+    看5f04的内容
+    00005efc <_GLOBAL_OFFSET_TABLE_>:
+    ...
+    5f08:   00001170    andeq   r1, r0, r0, ror r1
+    这里很明显5f04要么是0，要么根本就是无关紧要的东西，所有反汇编器没有显示这些内容。
+    所以，如果没有got表的话这个地方会出错。

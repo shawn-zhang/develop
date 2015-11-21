@@ -1,0 +1,79 @@
+
+/proc/net/各个文件功能分析统计：
+
+1. dev
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+ r_rmnet_data3:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ rmnet_data7:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ rmnet_data6:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ rmnet_data5:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ rmnet_data4:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ rmnet_data3:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ rmnet_data2:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ rmnet_data1:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ rmnet_data0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ p2p0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ r_rmnet_data8:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ r_rmnet_data0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ r_rmnet_data5:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ rmnet_ipa0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ dummy0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ r_rmnet_data2:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ lo:   34854     321    0    0    0     0          0         0    34854     321    0    0    0     0       0          0
+ r_rmnet_data7:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ r_rmnet_data4:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ usbnet0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ sit0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ wlan0: 1407675    2866    0    0    0     0          0         0   653843    3391    0    0    0     0       0          0
+ r_rmnet_data1:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ r_rmnet_data6:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+
+这个文件功能比较确定，就是当前device的状态，所以，利用这个文件可以确定device是否工作正常，并且可以统计当前网卡的丢包率等网卡的问题。
+
+2. arp
+192.168.32.1     0x1         0x2         f0:b4:29:1a:81:aa     *        wlan0
+当前的arp映射表
+3. dev_mcast
+24   p2p0            1     0     333300000001
+24   p2p0            1     0     01005e000001
+2    dummy0          1     0     333300000001
+5    usbnet0         1     0     333300000001
+23   wlan0           1     0     01005e000001
+23   wlan0           1     0     333300000001
+23   wlan0           1     0     3333ffa8ead9
+列出二层（数据链路层）多播组 
+4. fib_trie 和 fib_triestat
+目前确定与路由表相关。
+Main:
+  |-- 192.168.32.0
+     /24 link UNICAST
+Id 1023:
+  +-- 0.0.0.0/0 1 0 0
+     |-- 0.0.0.0
+        /0 universe UNICAST
+     |-- 192.168.32.0
+        /24 link UNICAST
+Local:
+  +-- 0.0.0.0/0 2 0 1
+     |-- 10.0.2.15
+        /32 host LOCAL
+     +-- 127.0.0.0/8 1 0 0
+        +-- 127.0.0.0/31 1 0 0
+           |-- 127.0.0.0
+              /32 link BROADCAST
+              /8 host LOCAL
+           |-- 127.0.0.1
+              /32 host LOCAL
+        |-- 127.255.255.255
+           /32 link BROADCAST
+     +-- 192.168.32.0/24 1 0 0
+        |-- 192.168.32.0
+           /32 link BROADCAST
+        +-- 192.168.32.192/26 1 0 0
+           |-- 192.168.32.207
+              /32 host LOCAL
+           |-- 192.168.32.255
+              /32 link BROADCAST
+
+

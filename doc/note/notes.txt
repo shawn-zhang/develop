@@ -1,0 +1,123 @@
+
+一. 关于repo的使用
+
+    首先repo是一个git仓库管理工具，repo管理代码时需要使用一个文件来描述该项目所有的git 仓库地址和清单，这个文件用xml方法表示。但是这个文件也是需要管理并需要一个地址来下载的，所以，Andorid还是使用git来管理，这是一个单独的清单xml组成的git仓库，与工程中的仓库不相关，有了仓库，也就有了分支、库文件等。这个仓库的名字一般在Android上面就叫manifest，所以，使用repo首先得有manifest仓库的地址。
+    repo命令中的init命令中的-u参数就是用来指定manifest仓库的地址的，-b参数用来指定manifest仓库的分支，因为mainifest作为一个git仓库，可以建立分支。-m参数用来表示使用-b指定的分支的哪一个xml文件，也就是我们上面所说的描述git仓库地址的xml文件。
+    最后，如果使用repo来一次性切换该xml所描述的每个git仓库的当前的分支，那么使用
+    repo start brachname(就是-b参数所指定的) -all 
+    命令
+
+    repo start brachname .
+
+
+二、adb jdb 调试apk和so
+    am start -D -n
+    jdb -connect com.sun.jdi.SocketAttach:hostname=127.0.0.1,port=8877
+
+三、wpa_supplicant中scan选项scan type=only
+
+    正常情况下，如果没有type=only选项，那么在扫描完成后会从扫描结果中找到一个优先级最高的网络进行链接。如果有type=only选项，那么其不会进行链接。
+
+四、backgroundscan和on-roam scan
+    background scan-- 客户端可能scan可用的信道在他们需要roam之前。这个允许他们建立对于RF环境和可用AP的了解，因次如果有必要可以快速roam，通过仅仅在客户端没有数据传输的时候扫描能够最小化的影响客户端数据传输。
+    on-roam scan -- 与backgroundscan相反，roam scan是发生在必须要进行roaming的时候，这个时候进行roaming scan,这个靠厂商来实现。
+
+五、VIM操作
+    :%s/priority=\zs\d\+\ze/\=line(".")/gc
+
+六、LOG_NDEBUG
+    这个宏定义在utils/Log.h中，只能控制ALOGV的消息的打开和关闭，无法控制ALOGD,ALOGI等LOG的开关。
+    其次assert的功能是如果条件为fase，将会利用abort指令立即终止程序。在media模块重新定义CHECK宏来实现。
+
+
+七、关于WIFI lock以及wifi休眠
+    Android设计是已经考虑到wifi休眠的问题，所以增加wifilock的机制，wifilock的具体实现是在WifiControllder里面实现并控制的。其次WiFi lock的机制又与屏幕的开关有关。当wifi处于idle状态的时候，系统会根据状态选择是否进入真正的休眠。如果Wifi不进入休眠，是不关系wifi lock的，也就是说如果wifi设置为在保持链接的情况下始终，那么，就永远不会设计到wifi lock的问题。
+    1. 根据WifiController的代码逻辑, 第一种情况是：
+    当屏幕关闭的时候，判断如果用户打开在待机模式下WiFi一直保持连接的情况下，如果Wifi的当前状态是连接状态，那么启动一个RTC_Wakeup的alarm，这个alarm15分钟之后如果屏幕没有唤醒，那么此时会向WifiController发送CMD_DEVICE_IDLE消息，此时，Wifi会进入device_idle状态，如果在这个15分钟之内有用户或者应用唤醒屏幕，此时Alarm时间要重新计算。
+    如果当前状态是非连接状态，那么直接发送那么此时会向WifiController发送CMD_DEVICE_IDLE消息。
+    2. 当系统收到CMD_DEVICE_IDLE消息是，如果在DeviceActiveState状态，那么检查当前wifi lock的状态，如果当前有wifi lock，那么系统继续保持连接，不会断开，并且也会同过DRIVER START命令通知到驱动里面，有wifi lock.如果没有wifi lock, 此时，会直接通知驱动 DRIVER STOP，此时，系统会根据其他情况待机休眠，当待机休眠的时候会断开wifi.
+    3. 如果15分钟已经到了，但是系统并没有休眠，此时如果有应用申请wifi lock，那么会想wifistatemachine会重新是这进入CONNECT状态。
+
+八、logcat 过滤
+    logcat -b radio -v threadtime -d *:v
+
+九、关于数据和wifi网络之间相互切换。(Android 4.4)
+    所有的网络类型统一由connectivityService进行管理，在Android4.4中，ConnectivityManager会对每个存在的网络类型建立与StateTracker类，比如wifi和数据就会有WifiStateTracker和MobileStateTracker,这些类的定义都存在ConnectivityService模块中。
+    然后各自的StateTracker会监听自己的网络状态变化，比如WifiStateTracker会监听NETWORK_STATE_CHANGE_EVENT和LINK_PROPERTY_CHANGE_EVENT，也就是wifi的连接、断开、强制检查，DHCP配置网络成功等等，状态都会接受。当接受到wifi的状态变化是，StateTracker会将消息通过handler返回到ConnectivityService中，ConnectivtyService会进行相应的处理，典型的处理逻辑就是handleConnect和handleDisconnect。当handleConnect时，首先进行处理的就是检查当前已经链接的网络，然后根据优先级决定是否保留当前网络，现在Android的处理是Wifi的优先级最高，当wifi连接时，会tearDown掉数据链接，但是并不是关闭数据连接，数据连接接口还处于up状态，只不过网络信息里面会处理掉有关于数据链接的信息，比如： default gateway, default dns等涉及到网络路由及访问的。
+    其次，另外一个问题就是在接收彩信等需要连接移动网络的时候，此时需要调用ConnectivityManager的startUsingNetworkFeature接口将网络切换到APN网络，注意，这个地方要求输入参数，请求使用的功能，比如MMS，此时，ConnectivityService会将MMS的网络是能，实际上就是使能的Moblie网络，不过，由于其网络类型是Moblie MMS，所以，在这种情况下ConnectivityService并不会比较优先级，会直接将网络切换到这个网络，那么，如果没有用户切换回wifi，将会一直使用数据网络。当在切换这个网络过程中，代码中并没有断开wifi，因为其没有调用tearDown接口。但是Android在做这个功能时，增加了一个超时切换机制，也就是在startUsingNetworkFeature接口时，会默认60s之后调用stopUsingNetworkFeature，同时，使用该功能的APP最好也自己调用下这个接口，这个60s的时间，是在config.xml配置支持的网络类型是配置的。现在的配置基本都是60s。
+    startUsingNetworkFeature这个接口并不是所有的APP都可以调用，Android在启动NetworkPolicyManagerService的时候，会读取/data/system/netpolicy.xml文件，里面会记录网络的一些策略，比如机制某个APP使用数据网络，都可以在这个配置文件中写入。
+
+   在Android L以上的版本中，将StateTracker这种功能重新实现成NetworkAgent类，这个功能在connectivityService中被抽出，不在属于connectivityService的功能类，之前4.4中StateTracker属于connectivitySerivce的功能类，而且每个StateTracker会通过广播来接收自己的所tracker的网络的变化，所以效率和机制上应该没有NetworkAgent这种性能高。NetworkAgent是属于每个网络自己来维护的，通过接口直接跟ConnectivityService通信，比如，Wifi会有WifiNetworkAgent，当网络有变化时，会将自己网络的状态通过NetworkAgent发送到ConnectivityService里面，然后ConnectivityService会根据情况来切换网络.
+   再有一个就是Android设计了一个NetworkFactory类，这个类是ConnectivityService控制每个网络来使用的，比如WifiNetworkFactory,就是当ConnectivityService需要断开Wifi的时候，就会通过WifiNetworkFactory来控制WifiStateMachine，原理上感觉NetworkAgent和NetworkFactory可以合并成一个来实现，暂时不了解Android的意图以及要解决的问题。在比如，如果用户要接收彩信，那么必须连接到移动网络，如果此时连接的是WIFI网络，一定要切换这个网络，那么也是通过WifiNetworkFactory
+
+十、关于Wifi的网络评分
+
+    Android L上面增加网络评分模块，具体实现在WifiStateMachine中，calculateWifiScore，这个方法调用是在网络连接之后，会周期性的获取网络的信号质量，CMD_RSSI_POLL, 这个信号会每30s发送一次，每次都会根据信号质量和丢包率来计算网络分数，然后根据分数，会在数据和wifi之间相互切换。
+
+11. mtk kernel编译命令
+    make -C kernel-3.10 O=/home/shawn/Workspace/product/v6-l-hermes-dev/out/target/product/hermes/obj/KERNEL_OBJ ARCH=arm64 MTK_TARGET_PROJECT=lcsh6795_lwt_l CROSS_COMPILE=/home/shawn/Workspace/product/v6-l-hermes-dev/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9-fixed/bin/aarch64-linux-android- ROOTDIR=/home/shawn/Workspace/product/v6-l-hermes-dev lcsh6795_lwt_l_defconfig
+    make -C kernel-3.10 O=/home/shawn/Workspace/product/v6-l-hermes-dev/out/target/product/hermes/obj/KERNEL_OBJ ARCH=arm64 MTK_TARGET_PROJECT=lcsh6795_lwt_l CROSS_COMPILE=/home/shawn/Workspace/product/v6-l-hermes-dev/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9-fixed/bin/aarch64-linux-android- ROOTDIR=/home/shawn/Workspace/product/v6-l-hermes-dev oldconfig
+    make -C kernel-3.10 O=/home/shawn/Workspace/product/v6-l-hermes-dev/out/target/product/hermes/obj/KERNEL_OBJ ARCH=arm64 MTK_TARGET_PROJECT=lcsh6795_lwt_l CROSS_COMPILE=/home/shawn/Workspace/product/v6-l-hermes-dev/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9-fixed/bin/aarch64-linux-android- ROOTDIR=/home/shawn/Workspace/product/v6-l-hermes-dev headers_install
+    make -C kernel-3.10 O=/home/shawn/Workspace/product/v6-l-hermes-dev/out/target/product/hermes/obj/KERNEL_OBJ ARCH=arm64 MTK_TARGET_PROJECT=lcsh6795_lwt_l CROSS_COMPILE=/home/shawn/Workspace/product/v6-l-hermes-dev/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9-fixed/bin/aarch64-linux-android- ROOTDIR=/home/shawn/Workspace/product/v6-l-hermes-dev 
+
+12. 
+
+    ip rule add oif ppp0 from all table ppp0 pref 14001
+    ip -4 route show table 255
+
+13. iptables -I INPUT -m quota2 ! --quota 2097152 --name globalAlter
+
+
+   这个是iptables的配额管理，这个chain的意思是，创建一个计数器，当quota大于2097152的时候匹配该条规则，如果小于等于2097152，该规则不匹配。该计数器名字是globalAlter。当创建该条chain的时候，同时会在/proc/net/xt_quota/会生成一个globalAlter的文件，这个文件用来更新这个配额。比如Android目前用这个规则来进行流量统计，当配额到达2097152时，系统会收到globalAlter的消息，此时Android会进行流量统计，这个流量统计的意思是将所以UID以及每网卡的数据从/proc/net/xt_qtaguid/里面统计出来，并记录到文件中。同时Android为了下一次流量统计会重新吧2097152这个值通过/proc/net/xt_quota/globalAlter进行填充，这样，每次到达2097152的时候，系统都会收到底层的消息，然后进行流量统计。
+   同时这条规则可以用来设置流量规则，比如，当流量到达1M的时候，禁止上网。
+   iptables -I INPUT -m quota2 ! --quota 1048576 --name globalQuota -j REJECT。
+   这样只要不在更新globalQuota的值，就无法上网了。
+
+14. 关于Wake_lock和Linux autoSleep机制
+
+   在Linux 3.4版本之后，增加autoSleep机制，autoSleep机制就是解决Android wake lock的问题的方案，由于wake lock 实现过于复杂并且改变了linux的待机流程并且无法合并到linux mainline，所以,linux对wake lock进行了统一实现，已经将autosleep机制合并到mainline.并且将这个功能模块加入struce device数据结构中，设备可直接通过pm_stay_awake（）,pm_relax();接口来操作设备即可实现阻塞休眠的功能，用户空间也可以通过这个接口来实现wake_lock来阻塞休眠。现在Andorid的wake lock已经使用auto sleep实现。
+
+15. 关于/proc/net/xt_qtaguid/ctrl的作用
+  通过代码可知道，xt_qtaguid的netfilter的功能，其支持tag一个socket fd, 也可以untag一个fd，暂时还未理清楚untag的作用，猜测应该是取消其数据流量统计，但是并没有删除，这样tag了之后可以统计每一个uid的数据流量。同时如果要统计某个socket的流量也可以设置一个单独的tag，这样，可以统计这个socket的数据流量了。
+  格式  echo "t socketfd tag uid" > /proc/net/xt_qtaguid/ctrl
+        echo "u socketfd" > /proc/net/xt_qtaguid/ctrl
+        echo "d socketfd uid" > /proc/net/xt_qtaguid/ctrl
+        如果 d socketfd = 0，那么将会将所有的socketfd tag移除
+16. 关于tcp timestamp 选项
+   tcp timestamp选项用于记录时间戳，tsval的值是发送包的时间戳，Tsecr是回显时间戳。
+   关于回显示时间戳是指当接受端接受到这个数据包的时候，发现有timestamp选项，会将tsval的值填充到Tsecr的field中，将包回传。
+
+17. 利用am发送broadcast
+    am broadcast  -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "fileUrl"
+18. Android Provider和ContentReslover
+    Android ContentProvider用于一个应用向不同的应用提供公共数据使用, 
+    1. Provider的声明在AndoridManifest.xml里面, 其中，重要的是name和android:authorities配置，android:authorities也就是Content://后面的第一部分的内容，这个涉及到Android对于Provider的调用的时候的匹配，所以一定不能写错。
+    <provider android:name="MediaProvider" android:authorities="media"
+        android:multiprocess="false" android:exported="true">
+        <grant-uri-permission android:pathPrefix="/external/" />
+            <path-permission
+                android:pathPrefix="/external/"
+                android:readPermission="android.permission.READ_EXTERNAL_STORAGE"
+                android:writePermission="android.permission.WRITE_EXTERNAL_STORAGE" />
+    </provider>
+   2. 使用是这样使用：
+   getContentResolver().insert("Content://media/..." , values);
+   这个里面的第一个字段与provider的android:authorities字段必须是匹配的。
+
+
+19. 网络评分规则
+  1). 第一个条件是： 当前WIFI的连接速度，分为6M, 12M，18M, 24M,56M ...这个是根据802.11a,b,g,n等协议以及station和ap协商来确定的。如果是badSpeed,那么分数直接减4.如果是好的speed，直接加4
+  2). 第二个条件是： 信号强度，如果打开主动从WLAN切换到数据，会主动将信号强度降低6db，如果是家庭网络是主动增加5db，所谓家庭网络也就是当前扫描到的WIFI数据少于6个并且加密类型为WPA_PSK的网络。如果是isBadRSSI，那么会-badRssiCount * 2,
+  3). 如果用户主动关闭或者断开WIFI，准且的说是在连接状态下关闭WIFI，判断断开是的信号强度，如果信号强度是badRSSI，那么badRSSI++，如果lowRSSI，那么lowRSSI++，如果notHIGHRSSI，那么notHighRssi++,之后这个值会减去1，在POLL_RSSI的时候，如果信号强度为bad，那么bad到达1000次的时候bad -1，如果为Low,那么low -1。
+  在没有到达1000次之前，这个会被考虑进分数的计算中，此时分数会减5db,也就是
+  第三个条件，如果为badRSSI，并且曾经用户因为BAD RSSI禁止过这个网络，那么分数-5
+  4). 低信号强度和非高信号强度以此类推。都会减去5分。
+  5). 如果当前WIFI芯片支持统计错误的传输速率和正确的传输速率，那么这个也是一个重要的考虑因素
+  分数计算完成。
+20. MediaProvider
+  MediaProvider虽然在packages/provider下面，但是确实一个系统应用。
+  MediaProvider分了三个重要的部分，分别是MediaProvider, MediaScannderReciver, MediaScannerService.
+  通常的当系统启动完成后，MediaProvider会先与其他两个服务启动，MediaProvider启动之后，在初始化过程中首先要创建数据库等初始化操作。MediaScannerReciver在收到BOOT_COMPLETED的时候会发出命令分别扫描internalVolumn和externalVolumn。然后扫描的过程都是调用MediaScannerService进行扫描。同时MediaScannerReciver也会接收其他外部命令进行扫描目前及文件。当MeidaScannerService扫描完成后，会直接将其插入对应的表中，比如Audio,Video,Image。但是并没有生成thumbnail.
+
+
+
