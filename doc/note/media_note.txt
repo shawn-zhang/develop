@@ -36,3 +36,24 @@ framework/av/
 3). libstagefright
    目前Android中使用的播放框架，类似ffmpeg,执行具体的播控逻辑，挂载解码库等。
 
+4). openMax
+   OpenMax分了三个层次，分别是AL(Application Layer), IL(Integer Layer), DL(Develop Layer). Android中主要使用了其中的IL层，也就是集成层。Andorid 中的openMax可以单独调用其接口，可以通过mediaplayerService获取openMax的BpBinder来调用真正的binder, openMax的具体调用过程，也就是Android中适配的openMax IL层的具体实现实在libstagefright.so中，openMax IL层的具体接口可以查看omx.h，omx.cpp是具体实现。具体实现暂时不表。
+   那么我们调用openMax IL层的逻辑顺序是什么呢，如果调用openMax IL层的接口呢。通过Android我们具体分析。
+   Android为了调用方便，在stagefright中增加了OmxCodec.h的接口，这个接口就是调用openMax的Android中的接口，屏蔽了IL层的具体调用过程.
+   1. 创建OmxClient，openMax为了调用方便，创建OmxClient实例。
+   2. 在使用OmxClient之前，首先与server端建立连接，OMXClient.connect();
+   3. status_t err = omx->allocateNode(componentName, observer, &node);根据要使用的组件的名字，创建具体的使用实例，实际上就是个handle，用这个handle来代替这个组件使用中的相关上下文。
+   4. OMXCodec::setComponentRole(omx, node, isEncoder, mime); 创建实例之后我们可以对这个实例的一些属性或者工作状态进行一些设定，这个地方就是设置这个实例(组件的handle)的具体角色，也就是干什么用的。比如，用这个组件处理那种类型的音视频格式，是编码还是解码。
+   5. err = omx->getParameter( node, OMX_IndexParamVideoProfileLevelQuerySupported, &param, sizeof(param)); 
+      err = omx->getParameter( node, OMX_IndexParamVideoPortFormat,&portFormat, sizeof(portFormat));
+      获取解码器或者编码器的相关参数，具体可获取参数的列表参见OMX_Index.h
+      typedef enum OMX_INDEXTYPE;
+   6. err = mOMX->setParameter(mNode, OMX_IndexParamAudioAac, &profile, sizeof(profile));
+   7. ... 其他功能接口的调用
+   8. omx->freeNode(node)  释放node，完成操作。
+   综上所述，我们在Android中调用openMax的接口，不需要调用真正的openMax的那些接口，我们直接调用OMXCodec.h中的接口即可。
+5). err = mOMX->getParameter(mNode, OMX_IndexParamPortDefinition, &def, sizeof(def));
+   获取组件中对于端口的定义，OpenMax IL中共有四种组件，分别是Source组间，Host组件，Decoder组件, Sink组件。
+   那么我们在Android中只是使用了Decoder组件，所以这个地方mNode就是我们之前创建的那个节点的组件。Decoder组件是有两个端口，分别是输入数据的端口和输出数据的端口。这个地方可以获取decoder中对于输入端口的buffer的定义的大小和输出组件中对于buffer的定义的大小。
+   另外，我们给decoder组件申请的输入buffer时间上是Source组件的输出buffer,因为decoder解码的时候需要输入数据，所以从decoder中申请好buffer之后，直接通过Source->setBuffers的接口设置给source组件就可以了。
+   status_t err = mSource->setBuffers(buffers);

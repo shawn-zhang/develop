@@ -2,6 +2,8 @@
 
 #include "subclass.h"
 
+#include <stdlib.h>
+
 using namespace test;
 
 subclass::subclass():base(1)
@@ -54,4 +56,26 @@ void subclass::func6(int argv1)
 void subclass::func6(unsigned char argv1)
 {
 	printf("[test.subclass.func6] unsigned char argv = %d\n",argv1);
+}
+
+int &subclass::func7(base &bs, int &a, int &b, int &c, int &d)
+{
+    bs.func1();
+    int *ret = (int *)malloc(sizeof(int));
+    *ret = a + b + c + d;
+    return *ret;
+}
+
+int *subclass::func8(base *bs, int *a, int *b, int *c, int *d)
+{
+    bs->func1();
+    int *ret2 = (int *)malloc(sizeof(int));
+    *ret2 = *a + *b + *c + *d;
+    return ret2;
+}
+
+subclass subclass::newInstance(void)
+{
+    subclass sc;
+    return sc;
 }

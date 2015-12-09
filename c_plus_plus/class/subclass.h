@@ -16,6 +16,11 @@ namespace test{
 			subclass& operator<<(unsigned char d);
 			void func6(int argv1);
 			void func6(unsigned char argv1);
+            int &func7(base&, int &a, int &b, int &c, int &d);
+            int *func8(base *, int *a, int *b, int *c, int *d);
+            subclass newInstance(void);
+
+            int xxxx;
 
 		private:
 			unsigned char *begin_;

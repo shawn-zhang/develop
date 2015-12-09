@@ -1,4 +1,44 @@
 
+
+2015.12.9 22:22
+
+1. 通过解析qca的driver驱动，可以看到最终接受到的网络数据包需要通过kernel标准的接口netif_rx_ni或者netif_rx将数据提交到kernel的net/core下面的子系统里面。函数的实现在net/core/dev.c中。同时这个地方已经脱离了实际的wifi driver,到了linux子系统里面，也就到了链路层来出来了。
+不管使用tcpdump还是iptable，可以从这个位置的数据包进下分析以及抓包了，也就是tcpdump对于在这个接口之下的数据包是无法处理的。
+
+2. 同时，在kernel中可以将一个中断注册为可唤醒系统的中断，当然这个得cpu支持, Kernel具体的API：
+irq_set_irq_wake()
+
+3. 通过解析qcom的80211 driver，可以得出在接受和发送数据的函数中可以直接做流量统计，之后可以研究如果使用这些流量统计的数据。
+
+
+2015.12.9 23:24
+
+关于qca driver log的打开
+
+在 /system/etc/firmware/wlan/prima/WCNSS_qcom_cfg.ini 增加以下字段:
+
+#vosTraceEnableBAP=256
+vosTraceEnableTL=256           
+#vosTraceEnableWDI=256                                   
+#vosTraceEnableHDD=256
+#vosTraceEnableSME=256
+#vosTraceEnablePE=256
+#vosTraceEnablePMC=256             
+#vosTraceEnableWDA=256 
+#vosTraceEnableSYS=256 
+#vosTraceEnableVOSS=256 
+#vosTraceEnableSAP=256
+#vosTraceEnableHDDSAP=256 
+
+wdiTraceEnableDAT=128
+#wdiTraceEnableDAL=128                                                 
+#wdiTraceEnableCTL=128
+#wdiTraceEnablePAL=128
+
+
+
+
+
 /proc/net/各个文件功能分析统计：
 
 1. dev
