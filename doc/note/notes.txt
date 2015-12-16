@@ -120,4 +120,8 @@
   通常的当系统启动完成后，MediaProvider会先与其他两个服务启动，MediaProvider启动之后，在初始化过程中首先要创建数据库等初始化操作。MediaScannerReciver在收到BOOT_COMPLETED的时候会发出命令分别扫描internalVolumn和externalVolumn。然后扫描的过程都是调用MediaScannerService进行扫描。同时MediaScannerReciver也会接收其他外部命令进行扫描目前及文件。当MeidaScannerService扫描完成后，会直接将其插入对应的表中，比如Audio,Video,Image。但是并没有生成thumbnail.
 
 
+2015.12.16  10:27
+1. Android Looper与handler的关系
+   首先looper是一定需要一个线程来轮寻的, looper->start的时候会制定在当前调用线程来执行loop还是新创建一个线程来执行。另外一个looper里面会有一个一一对应的messageQueue. 一个handler只能对应一个looper,但是一个looper会存在多个handler，因为每个handler都有自己的onMessageRecieve，所以只要给对应的Handler发消息即可。所以一个Handler一定要绑定一个looper，然后postMessage的时候，会调用looper->post将这个消息加入looper的MessageQueue中。也就是将这个函数的执行交给looper线程来执行。
+
 

@@ -5,6 +5,10 @@
 1. 通过解析qca的driver驱动，可以看到最终接受到的网络数据包需要通过kernel标准的接口netif_rx_ni或者netif_rx将数据提交到kernel的net/core下面的子系统里面。函数的实现在net/core/dev.c中。同时这个地方已经脱离了实际的wifi driver,到了linux子系统里面，也就到了链路层来出来了。
 不管使用tcpdump还是iptable，可以从这个位置的数据包进下分析以及抓包了，也就是tcpdump对于在这个接口之下的数据包是无法处理的。
 
+发送的时候调用对应网卡的
+ops->ndo_start_xmit(skb, dev) != NETDEV_TX_OK
+
+
 2. 同时，在kernel中可以将一个中断注册为可唤醒系统的中断，当然这个得cpu支持, Kernel具体的API：
 irq_set_irq_wake()
 
@@ -36,8 +40,63 @@ wdiTraceEnableDAT=128
 #wdiTraceEnablePAL=128
 
 
+2015.12.10
 
 
+Every 1s: iwpriv wlan0 getStats                             2015-12-10 03:07:34
+
+wlan0     getStats:
+Transmit
+called 94037, dropped 6, backpressured 0, queued 0
+      dropped BK 0, BE 6, VI 0, VO 0
+   classified BK 0, BE 93837, VI 6, VO 194
+backpressured BK 0, BE 0, VI 0, VO 0
+       queued BK 0, BE 0, VI 0, VO 0
+fetched 0, empty 0, lowres 0, deqerr 0
+dequeued 0, depressured 0, deque-depressured 0, completed 0, flushed 0
+      fetched BK 0, BE 0, VI 0, VO 0
+     dequeued BK 0, BE 0, VI 0, VO 0
+  depressured BK 0, BE 0, VI 0, VO 0
+Deque depressured BK 0, BE 0, VI 0, VO 0
+      flushed BK 0, BE 0, VI 0, VO 0
+
+Receive
+chains 55769, packets 101247, dropped 6, delivered 101247, refused 0
+
+观察结果就是
+Transmit
+called 94037, dropped 6, backpressured 0, queued 0
+   classified BK 0, BE 93837, VI 6, VO 194
+
+called 94037和classified的BE一直在增加，其他没有反映
+
+正确的结果中
+Every 1s: iwpriv wlan0 getStats                             2015-12-10 03:13:50
+
+wlan0     getStats:
+Transmit
+called 52919, dropped 0, backpressured 0, queued 0
+      dropped BK 0, BE 0, VI 0, VO 0
+   classified BK 0, BE 52913, VI 0, VO 6
+backpressured BK 0, BE 0, VI 0, VO 0
+       queued BK 0, BE 0, VI 0, VO 0
+fetched 0, empty 0, lowres 0, deqerr 0
+dequeued 0, depressured 0, deque-depressured 0, completed 0, flushed 0
+      fetched BK 0, BE 0, VI 0, VO 0
+     dequeued BK 0, BE 0, VI 0, VO 0
+  depressured BK 0, BE 0, VI 0, VO 0
+Deque depressured BK 0, BE 0, VI 0, VO 0
+      flushed BK 0, BE 0, VI 0, VO 0
+
+Receive
+chains 79143, packets 103069, dropped 251, delivered 103069, refused 0
+
+Transmit
+called 52919 和classified BK 0, BE 52913, VI 0, VO 6
+都在增加的同时
+Receive
+chains 79143, packets 103069, dropped 251, delivered 103069, refused 0
+接受是在增加的，尤其是delivered
 
 /proc/net/各个文件功能分析统计：
 

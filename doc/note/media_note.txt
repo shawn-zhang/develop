@@ -57,3 +57,19 @@ framework/av/
    那么我们在Android中只是使用了Decoder组件，所以这个地方mNode就是我们之前创建的那个节点的组件。Decoder组件是有两个端口，分别是输入数据的端口和输出数据的端口。这个地方可以获取decoder中对于输入端口的buffer的定义的大小和输出组件中对于buffer的定义的大小。
    另外，我们给decoder组件申请的输入buffer时间上是Source组件的输出buffer,因为decoder解码的时候需要输入数据，所以从decoder中申请好buffer之后，直接通过Source->setBuffers的接口设置给source组件就可以了。
    status_t err = mSource->setBuffers(buffers);
+
+2015.12.10  21:55
+   解释一下seek的模式,stagefright中对于seek模式有几种模式
+   enum SeekMode {
+       SEEK_PREVIOUS_SYNC,
+       SEEK_NEXT_SYNC,
+       SEEK_CLOSEST_SYNC,
+       SEEK_CLOSEST,
+   };
+   当我们在播放界面上做了一个拖动进度条的操作，放手的那一刻我们最终给代码传递了一个值：我们拖动到的视频的播放的时刻，这里以代码中的seekTimeUs表示，得到这个值之后，我们大致的流程就是通过这个值，获取对应的sampleIndex，得到sampleIndex之后我们找离这个sampleIndex附近的某一关键帧的syncSampleIndex(附近的判定原则有三种，向前，向后，前后最近，对应三个case)，得到syncSampleIndex之后，得到这个sampleIndex对应的offset和size，cts等信息，就可以送到解码器去播放。
+
+2015.12.16 14:32
+  关于Stagefrightplayer和NuPlayer的不同，stagefrightplayer其实是awesomplayer，整个实现的逻辑也就是都在awesomeplayer中，awesomplayer中会整合mediaplayer的mediaextor, omxcodec, openmax的调用，然后根据时间戳来进行音视频同步，包括视频的渲染，视频的渲染相对来说比较简单。在创建awesomplayer之后，如果我们需要将视频内容显示到屏幕上，那么我们需要从surfacefligner去申请graphicbuffer才可以，到时候直接就会合成到framebuffer上了。
+  通常的接口调用可以参考stream.cpp中的调用。
+  在omxcodec的实现中，如果输出的buffer使用的是graphicbuffer，那么我们需要按照openmax的要求来从graphicBuffer中申请足够的buffer，并把这些buffer的信息包括地址都告诉openmax，openmax在解码完成后直接使用输出到这些buffer中，那么我们可以从openmax中直接读取到解码后的数据buffer，直接推送给surfaceflinger即可。
+  在awesomeplayer中，直接调用omxcodec然后使用openMax进行解码，nuplayer中使用mediacodec进行解码，相对来说，nuplayer更规范些，这样可以少维护一套代码，因为mediacodec是android对外服务的一套标准接口.
