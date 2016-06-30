@@ -73,3 +73,21 @@ framework/av/
   通常的接口调用可以参考stream.cpp中的调用。
   在omxcodec的实现中，如果输出的buffer使用的是graphicbuffer，那么我们需要按照openmax的要求来从graphicBuffer中申请足够的buffer，并把这些buffer的信息包括地址都告诉openmax，openmax在解码完成后直接使用输出到这些buffer中，那么我们可以从openmax中直接读取到解码后的数据buffer，直接推送给surfaceflinger即可。
   在awesomeplayer中，直接调用omxcodec然后使用openMax进行解码，nuplayer中使用mediacodec进行解码，相对来说，nuplayer更规范些，这样可以少维护一套代码，因为mediacodec是android对外服务的一套标准接口.
+
+
+2016.6.12 18:34
+
+1. WifiDisplay的结构
+   system_server启动的时候会注册WifiDisplayAdapter, WifiDisplayAdapter继承自DisplayAdapter, WifiDisplayAdapter会管理整个WifiDisplay的状态。
+   WifiDisplayAdapter会创建WifiDisplayController, WifiDisplayController会进行整个WifiP2p,Rtsp等整个控制过程。
+   WifiDisplaySettings只会与WifiDisplayAdapter进行控制，交互，并且需要通过DisplayManagerService进行接口的调用。
+
+   WifiDisplayController会通过native创建RemoteDisplay实例，RmoteDisplay最终会在MediaPlayerService中创建，RemoteDisplay会建立WifiDisplaySource的对象，WifiDisplaySource会包括encoder, muxer,rtsp等一系列Wifidiaplay的管理。
+   并且WifiDisplaySource会创建surface，并将sureface handle传至WifidiaplayAdapter，然后createDisplay, 设置diaplay的surface
+
+
+
+
+
+
+

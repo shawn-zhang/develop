@@ -124,4 +124,95 @@
 1. Android Looper与handler的关系
    首先looper是一定需要一个线程来轮寻的, looper->start的时候会制定在当前调用线程来执行loop还是新创建一个线程来执行。另外一个looper里面会有一个一一对应的messageQueue. 一个handler只能对应一个looper,但是一个looper会存在多个handler，因为每个handler都有自己的onMessageRecieve，所以只要给对应的Handler发消息即可。所以一个Handler一定要绑定一个looper，然后postMessage的时候，会调用looper->post将这个消息加入looper的MessageQueue中。也就是将这个函数的执行交给looper线程来执行。
 
+2015.12.18  17:43
+  关于Binder的传递
+  通常我们要进行通讯的时候需要使用binder进行，那么我们如何传递一个binder.
+  我们可以这样调用，具体的实现都在readStrongBinger和WriteStrongBinder中。
+  在需要传递的放，将bbinder通过writeStrongBinder写入replay中。
+  在读取放通过readStrongBinder读取这个Binder就可以了。
+  interface_cast<ISurfaceComposerClient>(reply.readStrongBinder()); 
+  interface_cast 是一个泛型，
+  template<typename INTERFACE>
+  inline sp<INTERFACE> interface_cast(const sp<IBinder>& obj)
+  {
+      return INTERFACE::asInterface(obj);
+  }
+ 
+  也就是具体的实现是自爱asInterface中，asInterface是在INTERFACE中定义的，所以想怎么使用这个binder，就在于asInterface.
+  通常我们这样使用
+
+#define IMPLEMENT_META_INTERFACE(INTERFACE, NAME)                       \
+      const android::String16 I##INTERFACE::descriptor(NAME);             \
+  const android::String16&                                            \
+  I##INTERFACE::getInterfaceDescriptor() const {              \
+      return I##INTERFACE::descriptor;                                \
+  }                                                                   \
+  android::sp<I##INTERFACE> I##INTERFACE::asInterface(                \
+          const android::sp<android::IBinder>& obj)                   \
+{                                                                   \
+    android::sp<I##INTERFACE> intr;                                 \
+    if (obj != NULL) {                                              \
+        intr = static_cast<I##INTERFACE*>(                          \
+                obj->queryLocalInterface(                               \
+                    I##INTERFACE::descriptor).get());               \
+        if (intr == NULL) {                                         \
+            intr = new Bp##INTERFACE(obj);                          \
+        }                                                           \
+    }                                                               \
+    return intr;                                                    \
+}                                                                   \
+  I##INTERFACE::I##INTERFACE() { }                                    \
+  I##INTERFACE::~I##INTERFACE() { }                                   \
+  也就是我们会这样使用intr = new Bp##INTERFACE(obj);也就是说要创建一个BpInterface的东西，把这个binder交给他即可。
+  这个BpBinder的构造函数必须要有一个参数接收这个BpBinder, 所以只要你这个Bp类继承自BpInterface,那么在BpInterface中已经做好了这些。所以我们只要继承自BpInterface就可以了。
+  另外我们实现对应的接口的时候直接调用remote()接可以获取到之前传入的那个binder
+  virtual sp<ISurfaceComposerClient> createConnection()
+  {
+      uint32_t n;
+      Parcel data, reply;
+      data.writeInterfaceToken(ISurfaceComposer::getInterfaceDescriptor());
+      remote()->transact(BnSurfaceComposer::CREATE_CONNECTION, data, &reply);
+      return interface_cast<ISurfaceComposerClient>(reply.readStrongBinder());
+  }
+  实际上BpBinder里面记录了BBinder的方的从ServiceManager里面来的handle,包括pid等信息，或者从另外的BBinder穿过来的handle,在将消息传送给Binder Driver的时候，可以找到对应的进城的对应的BBinder就可以了。然后Binder线程调用具体BInder的onTransace就可以了
+
+
+2015.12.29 14:24
+hardware的结构是我们可以通过hw_get_module(id, &module)获取一个具体id的module，module是hw_module_t类型，里面有这个module的版本号...等其他信息。同时最终要的还是method的方法.
+typedef struct hw_module_methods_t {
+    /** Open a specific device */
+    int (*open)(const struct hw_module_t* module, const char* id,
+            struct hw_device_t** device);
+
+} hw_module_methods_t;
+
+我们可以通过method的方法的open函数来打开module的具体device。同时这个device我们是可以自定义的。因此，一个module中会有多个device.
+
+
+2016.1.13
+1. framework 部分log打开的方式改为property
+   setprop log.tag.MediaSessionService DEBUG
+
+
+2016.4.7
+1. export USE_CCACE=1
+   prebuilts/misc/linux-x86/ccache/ccache -M 30G
+
+2. gdbserver :1234 --attach pid
+   adb forward tcp:1234 tcp:1234
+   arm-eabi-gdb 
+   gdb> target remote :1234
+   gdb> set solib-search-path out/target/product/wt88047/symbols/system/lib/
+   gdb> list MediaPlayerServer.cpp:882
+   gdb> breadk MediaPlayerServer.cpp:884
+   gdb> continue
+   gdb> p *(NuPlayerDriver *)0x
+
+
+
+2016.5.23
+
+1. Service_manager单独的进程，负责将handle和service的名字进行映射。
+   所有client段需要得到service的时候，会通过getService->BpBinder(serviceManager)->trasact->Binder Driver->ServiceManager(name)到service_manager的进程，然后ServiceManager会将这个进程对应的handle返回到kernel, Kernel会根据handle找到对应的BBinder，如果是在同一个进程，会返回BBINDER_TYPE_BINDER, 否则返回BINDER_TYPE_HANDLE, 当通过reply->readStrongBinder的时候，会转换成相应的BBinder或者新建一个BpBinder.
+
 

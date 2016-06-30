@@ -18,8 +18,5 @@ int main(int argc, char *argv[])
     snl.nl_family = AF_NETLINK;
     snl.nl_pid = getpid();
     snl.nl_groups = 1;//这儿是发广播用的。如果是发往内核该值为 0；
-
-    
-
 }
 

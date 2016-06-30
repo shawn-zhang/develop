@@ -176,3 +176,431 @@ Local:
               /32 link BROADCAST
 
 
+
+
+
+
+
+
+2015.12.25  13:15
+
+ip rule show的规则
+路由表的规则的优先级是从小到大进行匹配的。
+0:  from all lookup local 
+10000:  from all fwmark 0xc0000/0xd0000 lookup legacy_system 
+13000:  from all fwmark 0x10063/0x1ffff lookup local_network 
+13000:  from all fwmark 0x10069/0x1ffff lookup wlan0 
+14000:  from all oif wlan0 lookup wlan0 
+15000:  from all fwmark 0x0/0x10000 lookup legacy_system 
+16000:  from all fwmark 0x0/0x10000 lookup legacy_network 
+17000:  from all fwmark 0x0/0x10000 lookup local_network 
+19000:  from all fwmark 0x69/0x1ffff lookup wlan0 
+22000:  from all fwmark 0x0/0xffff lookup wlan0 
+23000:  from all fwmark 0x0/0xffff uidrange 0-0 lookup main 
+32000:  from all unreachable
+
+比如这个路由表会从0向32000来进行匹配。
+当有其中一条匹配之后，那么之后的就不会再被执行。
+这条路由规则里面解释， 
+首先需要进行计算，将包里面的mark和fwmark中/后面的淹码进行与操作，如果包的mark&淹码等于前面的mark，规则通过，检查路由
+e.g.
+    (1)、比如包被SO_MARK为0x69, 那么规则这样
+    (0x69 & 0xd0000 = 0) != 0xc0000
+    (0x69 & 0x1ffff = 0x69) != 0x10063
+    (0x69 & 0x1ffff = 0x69) != 0x10069
+    (0x69 & 0x10000 = 0) == 0 lookup legacy_system
+    (0x69 & 0x10000 = 0) == 0 lookup legacy_network
+    (0x69 & 0x10000 = 0) == 0 lookup legacy_network
+    (0x69 & 0x1ffff = 0x69) == 0x69 lookup wlan0
+    (0x69 & 0xffff = 0x69) == 0x69 lookup wlan0
+
+    (2)、比如包没有进行SO_MARK, 因为SO_MARK为0, 规则这样
+    (0x0 & 0xd0000 = 0) != 0xc0000
+    (0x0 & 0x1ffff = 0) != 0x10063
+    ...
+    (0x0 & 0x10000 = 0) == 0 lookup legacy_system
+    ...
+
+1. 被打上0xc0000/0xd0000这个标签的，要走legacy_system路由表
+2. 被打上0x10063/0x1ffff这个标签的， 要走local_network路由表
+3. 打上0x10069/0x1ffff， 走wlan0表
+4. 所有从wlan0接口的数据都走wlan0表
+   很重要的一条
+   所有出去的数据使用wlan0接口的，都走wlan0表
+23000:  from all fwmark 0x0/0xffff uidrange 0-0 lookup main
+这条规则显示，被打上0x0/0xffff标签的，uid是0的规则走main表
+5. 0x0/0xffff的，现在应该是默认路由，也就是没打标志的，应该fwmark都是0
+
+在Android中fwmark的标记是这样的。
+
+union Fwmark {
+    uint32_t intValue;
+    struct {
+        unsigned netId          : 16;
+        bool explicitlySelected :  1;
+        bool protectedFromVpn   :  1;
+        Permission permission   :  2;
+    };
+    Fwmark() : intValue(0) {}
+};
+static const unsigned FWMARK_NET_ID_MASK = 0xffff;
+从mask的作用可以看出，低16bit表示netid,所以，可以看出高1个字节是没有用的。
+上面可以看出
+19000:  from all fwmark 0x69/0x1ffff lookup wlan0
+打上0x69标签的网络包会配置这条规则，0x69就是wlan0的netid号。
+10000:  from all fwmark 0xc0000/0xd0000 lookup legacy_system
+这条规格显示
+netid = 0
+explicitlySelected = 0
+protectedFromVpn = 0
+permission = PERMISSION_SYSTEM
+
+2015.12.25 14:44
+SOL_SOCKET, SO_MARK
+非中重要，在没有默认路由的情况下，如果使用想使用路由，就必须通过SO_MARK
+现在Android上面的每个socket应该都有这只mark值
+
+2016.1.5 14:50
+iptables 调试log
+iptables -I INPUT 1 -j LOG --log-prefix "[iptables_in_start] " --log-level 4 --log-uid
+iptables -A INPUT -j LOG --log-prefix "[iptables_in_end] " --log-level 4 --log-uid
+iptables -I OUTPUT 1 -j LOG --log-prefix "[iptables_out_start] " --log-level 4 --log-uid
+iptables -A OUTPUT -j LOG --log-prefix "[iptables_out_end] " --log-level 4 --log-uid
+http://muzso.hu/2012/11/13/how-to-debug-examine-data-usage-leaks-in-android-using-iptables
+
+禁止除了QQ之外的应用上网
+iptables -I bw_penalty_box 1 -m owner ! --uid-owner 10097 --jum
+
+
+2016.1.29 
+
+1.1.捎带ACK的发送方式
+
+这个策略是说，当主机收到远程主机的TCP数据报之后，通常不马上发送ACK数据报，而是等上一个短暂的时间，如果这段时间里面主机还有发送到远程主机的TCP数据报，那么就把这个ACK数据报“捎带”着发送出去，把本来两个TCP数据报整合成一个发送。一般的，这个时间是200ms。可以明显地看到这个策略可以把TCP数据报的利用率提高很多。
+
+
+
+2016.02.25
+
+1. 总结autojion
+
+   autojion主要有功能还是Roaming,不管是Roaming到其他的SSID还是同一个SSID， Roaming到其他的SSID，android定义叫AUTO_JOIN_EXTENDED_ROAMING和AUTO_JOIN_OUT_OF_NETWORK_ROAMING， AUTO_JOIN_EXTENDED_ROAMING这种网络是指两个SSID不同，但是网关MAC和PSK相同的网络， 例如放大器。AUTO_JOIN_OUT_OF_NETWORK_ROAMING这个是指ROAMING到了其他SSID的网络了。也就是auto_connect. Roaming到同一个SSID的网络叫AUTO_JOIN_ROAMING.
+   autojion的时候考虑的因素应该有这么几个:
+   1. 要考虑网络被扫描到的时间，一般就是5-14秒中之内能看到的，才能参与网络的roaming（包括上面的那三种类型的roaming）, 5和14秒的区别，代码上有。
+   2. 考虑之前连接过程中出现过错误的情况，也就是autojionStatus, 当连接过程中出现错误，导致这个网络无法连接的，错误信息会被标记到, autojionStatus上，比如： AUTO_JOIN_DISABLED_ON_AUTH_FAILURE，如果处于这个状态下，有可能的原因就是DISABLED_DHCP_FAILURE， DISABLED_ASSOCIATION_REJECT， DISABLED_AUTH_FAILURE. 当然这个原因会被记录到WifiConfiguration的disableReason字段。如果是这种类型的网络，那么会被放到黑名单5分钟，这个5分钟不会被参与到连接。
+   3. 如果有多个符合上面条件的config,那么这几个之间相互比较以下信息：
+    1)、 信号强度，包括5G和2.4G的都要比。
+    2)、 用户的行为。当几个网络都能够被用户连接的时候，用户选择的那个的优先级要高于没有被选中的网络的优先级。
+    3)、 网络的优先级，这个也代表了一定的用户意愿。
+  4.  最后跟现在连接的网络做一次PK, PK的时候，首先会使用上述3中所使用的规则进行PK。PK玩之后，有一个很重要的权重是最后连接的网络，实际上这个也是跟用户意愿相关，最后选择的网络通常是调用CONNECT_NETWORK, ENABLE_NETWORK和ADD_OR_UPDATE_NETWORK时设置的，在断开5分钟之后或者自动连接上另一个网络的时候被清除。
+  5.  根据步骤4搜返回的结果，然后再考虑当前连接速度，根据当前网络的连接速度，决定是否切换到候选的网络。
+  6.  根据5所作出的决定，如果不进行网络切换，那么考虑是否进行同一个SSID的Roaming。这个考虑的仅仅是5秒内的信号强度不同BSSID的信号强度。
+
+
+
+2016.03-30
+
+1. 关于connectivityService的rematching策略
+   当数据网络连接之后并不会直接建立链接，而是当有需要的networkRequest的时候才会建立真正的链接。通常情况下在connectivityService里面会有一个DefaultNetworkRequst来维护默认链接请求。并且请求会根据分数来选择唯一的一个网络。
+   当有新的请求注册是，会通过networkFactory将这个请求注册到所有的网络中，网络的具体实现方（比如WIFI），会判断这个网络是否需要自己建立连接，然后根据这个信息来建立和释放链接
+
+
+
+2016.4.18:
+
+1. qcom wlan driver:
+
+wcnss:  wlan connectivity network subsystem
+HDD:    host device driver
+AMP:    bluetooth alternate MAC/PHY 高速蓝牙的相关协议，利用80211进行实现，类似当wlan空闲时，利用wlan的phy进行蓝牙数据的传输。
+BAP:    BT-AMP
+DXE:    wlan data transfer abstraction layer.
+VOSS:   virtual Operating System Services.
+CSR:    Common Scan and Roaming Module interfaces.
+WDA:    WLAN DEVICE ADAPTATION LAYER
+WDI:    Wlan Device Interface
+
+2. WLAN driver
+Linux Kernel对于wlan的driver分了两个子系统，一个是cfg80211模块，另外一个就是wireless network device（netdev）模块。
+
+3. netif_rx_ni
+  When have data recive from hardware, submit to kernel net subsystem by netif_rx_ni.
+
+4. cfg80211, mac80211, netdev, nl80211.
+   nl80211  基于netlink的一套80211的库，用于user和kernel进行接口的调用。
+   cfg80211 主要是80211配置管理工作，比如，scan, associate, connect等帧的发送和接收, wpa_supplicant会通过nl80211与cfg80211进行通讯，进行实际的控制。
+   mac80211 这是一个比较特殊的80211 mac，是内核实现好的一套mac管理层，现在大多数driver都不再使用这套机制。具体的就是mac80211会分别注册cfg80211 ops和netdev，然后生成具体的设备，cfg80211和netdev-ops都会调用到mac80211，然后mac80211会进行具体frame的封装，然后通过调用具体的硬件接口将frame发送出去。现在qcom的driver里面已经没有用mac80211了，完全自己管理mac，自己封装具体的frame，然后发送。
+   netdev:  这个就是具体的网络设备接口，我们的数据都是通过netdev封装完成后，包括802.3的mac头等封装好后，调用start_tx进行具体的数据帧的发送。
+5. SME, MLME
+   SME: station management entity
+   MLME: MAC sublayer management entity
+   PLME: physical layer management entity
+   SAP: service access point
+6. DTIM
+   delivery traffic indication message.
+   802.11标准为client设备定义了一个省电模式。在省电模式下，client设备可能会选择沉睡一个或多个beacon Interval，当收到含有DTIM的beacon帧时会唤醒。
+   MLME-POWERMGT.request( PowerManagementMode, WakeUp,ReceiveDTIMs) // IEEE80211标准MLME(MAC layer management enties)中关于powermanager的方法原语。
+   PowerManagementMode: ACTIVE/Power Save,  An enumerated type that describes the desiredpower management mode of the STA.
+   WakeUp: True/false. When true, the MAC is forced immediately into the Awake state. This parameter has no effect if the current power management mode is ACTIVE.没太理解个参数的意思，当为true的时候，MAC是被立即强制唤醒的，如果当前在ACTIVE状态，那么是没反映的。p.s. 与PowerManagementMode的关系是怎样的呢，如果powerManageMentMode是PowerSave是怎样的呢？
+   ReceiveDTIMs: When true, this parameter causes the STA to awaken to receive all DTIM frames. When false, the STA is not required to awaken for every DTIM frame.这个是比较重要的一个参数，当为true的时候，station会唤醒接受所有的DTIM帧，当false的时候，station是不需要唤醒检查没一个DTIM帧。
+
+7. Block ACK
+   在80211N中加入这个技术，即类似于TCP协议的控制, 在之前的80211协议中规定，对端收到一个帧后必须理解回复一个ACK，block ack允许收到几个帧之后统一用一个ACK来确认之前所欲的数据包。
+   Block Ack机制分三个步骤来实现：
+        通过ADDBA Request/Response报文协商建立Block ACK协定。
+        协商完成后，发送方可以发送有限多个QoS数据报文，接收方会保留这些数据报文的接收状态，待收到发送方的BlockAckReq报文后，接收方则回应以BlockAck报文来对之前接收到的多个数据报文做一次性回复。
+        通过DELBA Request报文来撤消一个已经建立的Block Ack协定。
+
+
+8. 40MHz绑定技术
+    这个技术最为直观：对于无线技术，提高所用频谱的宽度，可以最为直接地提高吞吐。就好比是马路变宽了，车辆的通行能力自然提高。传统802.11a/g使用的频宽是20MHz，而802.11n支持将相邻两个频宽绑定为40MHz来使用，所以可以最直接地 提高吞吐。
+    需要注意的是：对于一条空间流，并不是仅仅将吞吐从72.2 Mbps提高到144.4（即72.2×2 ）Mbps。对于20MHz频宽，为了减少相邻信道的干扰，在其两侧预留了一小部分的带宽边界。而通过40MHz绑定技术，这些预留的带宽也可以用来通讯，可以将子载体从104（52×2）提高到108。按照72.2*2*108/104进行计算，所得到的吞吐能力达到了150Mbps。
+
+2016-05-11
+1. Wht is the Max length of 802.11 MAC Frame.
+
+   PHY layer defines the max lenght it can transmit. For DSSS, HR/DSSS, OFDM it happens to be the same 4095 bytes.
+   MSDU size can be max of 2304 bytes. Standard defines this. Currently the maximum header that MAC can add to this is 34 bytes (FCS + 4 address fields included). And with Encryption overheads maximum of 20 bytes. Which would mean max length of 802.11 MAC frame before sending to PHY would be 2304 + 34 + 20 = 2358 bytes. This is very much less than the 4095.
+   At Present max lenght of 802.11 frame is 2358!!!!
+
+2.  RTSThreshold
+    FragmentationThreshold 分片阀值
+    shortSlotTime
+3. FT
+   IEEE802．11r(Fast BSS Transition)定义了STA在同一移动域(MD)中的AP 之 间漫游时的交互细则，提供了实现BSS快速转换的标准。协议描述的主要方法 为：STA第一次与MD内的AP关联时，利用802.1x认证获得的主会话密钥（MSK，由于该密钥为认证者和申请者共享，也成为成对主密钥（PMK））和MD内各个AP的R1KH_ID计算出不同的 PMK R1分发给MD内的其它AP；发生切换时，STA直接利用发送到目标AP上的PMK R1协商出 成对临时密钥 (PTK)和组临时密钥(GTK)，以此缩短切换时间，避免再进行耗时的802.1x认证.
+   在driver中进行roaming是有优势的，可以直接使用80211r的协议，ieee80211R协议在roaming的时候可以省去auth阶段，发送ft_pre_auth帧就可以了。
+   如果不支持11r那么跟上层的roaming是相同的。
+   另外driver中也支持roaming失败的此时限制，当roaming失败超过3次，就不会再进行roaming了。   
+
+
+2016-05-12
+1. SME, MLME
+   SME   Station Management Entity
+   MLME  MAC Management Entity
+   
+   SME和MLME的关系是，SME也就是wpa_supplicant，比如管理RSNA key管理，认证等，然后调用MLME提供的标准（IEEE80211）接口，实现具体的MAC管理。
+   SME --> MLME /  SME ---> PLME
+
+2. 以太网帧结构
+    前导码	            帧开始符	       MAC 目标地址	MAC 源地址   802.1Q 标签 (可选)	  以太长度         负载	        冗余校验	帧间距
+10101010 7个octet	10101011 1个octet	    6 octets	6 octets	 (4 octets)	          2 octets    46–1500 octets	4 octets	12 octets
+
+   以太帧有很多种类型。不同类型的帧具有不同的格式和MTU值。但在同种物理媒体上都可同时存在。
+   以太网第二版[note 3] 或者称之为Ethernet II 帧，DIX帧，是最常见的帧类型。并通常直接被IP协议使用。
+   Novell的非标准IEEE 802.3帧变种。
+   IEEE 802.2 逻辑链路控制 (LLC) 帧
+   子网接入协议(SNAP)帧
+   所有四种以太帧类型都可包含一个IEEE 802.1Q选项来确定它属于哪个VLAN以及他的IEEE 802.1p优先级(QoS)。这个封装由IEEE 802.3ac定义并将帧大小从64字节扩充到1522字节(注：不包含7个前导字节和1个字节的帧开始符以及12个帧间距字节)。
+
+   Ethernet II
+   以太 II 帧 (也称作DIX以太网，是以这个设计的主要成员，DEC,Intel和Xerox的名字命名的。[1]),把紧接在目标和源MAC地址后面的这个两字节定义为以太网帧数据类型字段。例如，一个0x0800的以太类型说明这个帧包含的是IPv4数据报。同样的，一个0x0806的以太类型说明这个帧是一个ARP帧，0x8100说明这是一个IEEE 802.1Q帧，而0x86DD说明这是一个IPv6帧。当这个工业界的标准通过正式的IEEE标准化过程后，在802.3标准中以太类型字段变成了一个(数据)长度字段。(最初的以太包通过包括他们的帧来确定它们的长度，而不是以一个明确的数值。)但是包的接收层仍需知道如何解析包，因此标准要求将IEEE802.2头跟在长度字段后面，定义包的类型。多年之后，802.3x-1997标准，一个802.3标准的后继版本，正式允许两种类型的封包同时存在。实际上，两种封包都被广泛使用，而最初的以太封包在以太局域网中被广泛应用，因为他的简便和低开销。为了允许一些使用以太II版本的数据报和一些使用802.3封装的最初版本的数据包能够在同一个以太网段使用，以太类型值必须大于等于1536(0x0600)。这个值比802.3封包的最大长度1500byte (0x05DC)要更大。因此如果这个字段的值大于等于1536，则这个帧是以太II帧，而那个字段是类型字段。否则(小于1500而大于46字节)，他是一个IEEE 802.3帧，而那个字段是长度字段。1500～1536(不包含)的数值未定义.
+
+   802.2 LLC
+   一些协议，尤其是为OSI模型设计的，会直接在802.2 LLC层上操作。802.2 LLC层同时提供数据报和面向连接的网络服务。
+   802.2以太网变种没有在常规网络中普遍使用。只有一些大公司的没有与IP网络融合的Netware设备。以前，很多公司Netware网络支持802.2以太网，以便支持从以太网到IEEE 802.5令牌环网或FDDI网络的透明桥接。当今最流行的封包是以太网版本二，由基于IP协议的网络使用，将其以太类型设置为0x0800用于封装IPv4或者0x86DD来支持IPv6。
+   还有一个英特网标准来使用LLC/SNAP报头将IPv4封装在IEEE 802.2帧中。[3] 这几乎从未在以太网中实现过。(但在FDDI以及令牌环网，IEEE 802.11和其他IEEE 802网络中使用)。如果不使用SNAP,IP传输无法封装在IEEE 802.2 LLC帧中。这是因为LLC协议中虽然有一种IP协议类型，却没有ARP。IPv6同样可使用LLC/SNAP在IEEE 802.2以太网上传播，但，如同IPv4，它也绝少被这样使用。(尽管LLC/SNAP的IPv6封包在IEEE 802网络中被使用)。
+
+    子网接入协议
+    通过检查802.2 LLC头，可以确定他是否后继一个SNAP头。LLC头包含两个附加的8位地址字段，在OSI模型术语中称作服务访问点(SAPs)。当源和目标SAP都设置为0xAA时，就会使用SNAP服务。SNAP头允许以太类型值被任何IEEE 802协议使用，即使支持的是私有协议ID空间。在IEEE 802.3x-1997中，IEEE 以太标准被修改为明确允许紧接着MAC地址的16位字段即可用于长度字段，也可用于类型字段。
+
+    Mac OS使用 802.2/SNAP 封包来实现以太网上的AppleTalk V2协议套件("EhterTalk")。
+
+    这里有一个关键点，在Ethernet II帧的结构中，并没有包含帧长度的字段，那么如果确定帧的长度呢，所以，单纯通过ethernet帧的结构是无法确定帧的长度的，需要借助物理层的协议才能确定。具体的做法是因为以太网物理层传输bit时采用4B5B编码，通过帧的结束来判断帧的长度，帧的结束标志是ESD序列。
+
+3. 关于 80211Q字段。
+   IEEE 802.1Q标签，如果出现，需要放在源地址字段和以太类型或长度字段的中间。这个标签的前两个字节是标签协议标识符(TPID)值0x8100。这与没有标签帧的以太类型/长度字段的位置相同，所以以太类型0x8100就表示包含标签的帧，而实际的以太类型/长度字段则放在Q-标签的后面。TPID后面是两个字节的标签控制信息(TCI)。(IEEE 802.1p 优先级(QoS)和VLAN ID)。Q标签后面就是通常的帧内容。
+
+4. remain-on_channel 保持在信道上
+   This indicates to the device that it should stay on a given channel for a given time, to implement a P2P listen phase. Can also be canceled, since it is also used to implement off-channel TX for group negotiation or invitation (but see below)
+
+
+2016-05-18  00:24
+
+scan过程：
+
+1. wpa_supplicant 通过nl80211发送NL80211_CMD_TRIGGER_SCAN命令到kernel的cfg80211 driver, cfg80211模块通过命令map找到NL80211_CMD_TRIGGER_SCAN的命令operation
+	{
+		.cmd = NL80211_CMD_TRIGGER_SCAN,
+		.doit = nl80211_trigger_scan,
+		.policy = nl80211_policy,
+		.flags = GENL_ADMIN_PERM,
+		.internal_flags = NL80211_FLAG_NEED_NETDEV_UP |
+				  NL80211_FLAG_NEED_RTNL,
+	},
+
+调用nl80211_trigger_scan方法， 在这个方法中会完成cfg80211_scan_request的填充，也就是根据wpa_supplicant传下来的参数构造cfg80211_scan_request，然后调用wifi driver注册的真正的scan方法并将cfg80211_scan_request传入，这个cfg80211_scan_request就是整个的scan的参数，包括扫描的频道书，ssids， IE等各种需要的参数。
+
+2. 在qcom的driver中进入到了wlan_hdd_cfg80211_scan方法，也就是设备注册的scan方法中， 在接下来的执行过程中，需要检查整个WIFI的各种状态以及配置，确定是否可以进行扫描，比如，如果正在PNO过程中，禁止扫描等配置，P2P_GO或者softAp等情况下都会禁止扫描。 等所有的检查通过之后，正式进入sme进行扫描，调用sme_ScanRequest。
+3. 离开hdd(host device driver), 进入sme状态机，调用sme_ScanRequest方法， 在这个方法的参数中传入一个callback参数，hdd_cfg80211_scan_done_callback，当scan完成或，会通过这个callback返回扫描结果。SME同样进行一些状态机的检查，确定可以进入扫描状态之后，调用csrScanRequest，进入csr(common scan and romming)模块。
+4.  进入csr模块，根据连接状态等确定一些扫描的参数，比如扫描的超时时间，主动扫描被动扫描等。然后发送扫描命令到异步线程执行扫描命令，wpa_supplicant scan命令正式执行完毕，进入等待扫描结果状态。SME正式进入scan的状态中。
+5.  SME状态机执行scan命令，根据csr发送过来的参数，组织scan的参数，然后调用csr scan接口进行scan的执行， csrProcessScanCommand->csrScanChannels->csrSendMBScanReq->palSendMBMessage发送scan指令到pal模块
+6.  pal(pe) -> peProcessMessages -> limMessageProcessor -> limProcessNormalHddMsg -> __limProcessSmeScanReq -> limPostMlmMessage -> limProcessMlmReqMessages -> limProcessMlmScanReq -> limSetScanMode -> limSendHalInitScanReq -> wdaPostCtrlMsg(WDA_INIT_SCAN_REQ) -> WDA_ProcessInitScanReq -> WDA_SuspendDataTx(pWDA) -> wdi(wlan device interface) --> smd
+
+7.  (...(firmware))->wda-> WDA_InitScanReqCallback -> WDA_SendMsg(pWDA, WDA_INIT_SCAN_RSP) -> limProcessInitScanRsp -> limContinueChannelScan(pMac) -> limSendHalStartScanReq(pMac, channelNum, eLIM_HAL_START_SCAN_WAIT_STATE) -> wdaPostCtrlMsg(WDA_START_SCAN_REQ) --> WDA_ProcessStartScanReq -> WDI_StartScanReq -> smd
+8. 循环执行limContinueChannelScan， 将所有的channel扫描完成，然后发送limSendHalFinishScanReq->wdaPostCtrlMsg(WDA_FINISH_SCAN_REQ)->WDA_ProcessFinishScanReq()->WDA_ResumeDataTx->WDA_SendMsg(WDA_FINISH_SCAN_RSP) 
+-> limCompleteMlmScan->limPostSmeMessage(LIM_MLM_SCAN_CNF)-> limProcessMlmRspMessages(LIM_MLM_SCAN_CNF) -> limProcessMlmScanCnf -> limSendSmeScanRsp (eWNI_SME_SCAN_RSP) ->
+9. VosMcThread() -> sme_ProcessMsg (eWNI_SME_SCAN_RSP) -> csrMsgProcessor -> csrScanningStateMsgProcessor -> csrScanSmeScanResponse
+   csrScanSmeScanResponse --> csrScanProcessScanResults -> csrScanComplete->csrSaveScanResults->csrMoveTempScanResultsToMainList
+   csrScanSmeScanResponse --> csrReleaseScanCommand -> csrScanCallCallback -> pCommand->u.scanCmd.callback(hdd_cfg80211_scan_done_callback) -> cfg80211_scan_done(req, aborted);
+
+10. cfg80211_scan_done 之前，sme会将扫描的结果发送到cfg80211中，扫描结果最终都会在cfg80211中的链表中存储。
+    pCommand->u.scanCmd.callback(hdd_cfg80211_scan_done_callback) -> wlan_hdd_cfg80211_inform_bss_frame->cfg80211_inform_bss_frame()->cfg80211_bss_update
+
+11. 整个扫描过程按照80211文档来说是比较简单的一个过程，但是看具体实现还是非常复杂的，代码结构十分不清晰。
+   在SME, CSR的调用过程中，整个csr的调用都是有sme来调用的，也就是说csr是sme的内部模块，对外都是由sme提供API来实现。
+
+
+
+2016-05-18
+1. 通过telnet发送http请求的方式，同时可能也可以发送其他请求，没有深入研究
+   telent baidu.com 80
+   GET / HTTP/1.1
+
+2. WDI 是 cpu与wlan固件进行通信的接口
+   WDI通常会通过SMD发送消息给fimeware，然后并且从firmware中接受消息。
+   在WDI初始化时候，会设置callback到smd中
+   wctsCBs.wctsNotifyCB      = WDI_NotifyMsgCTSCB;
+   wctsCBs.wctsNotifyCBData  = &gWDICb;
+   wctsCBs.wctsRxMsgCB       = WDI_RXMsgCTSCB;
+   wctsCBs.wctsRxMsgCBData   = &gWDICb;
+
+
+
+
+
+
+2016-06-04
+
+1. http://whatis.techtarget.com/definition/Access-Network-Query-Protocol-ANQP
+The Access Network Query Protocol (ANQP) is a query and response protocol that defines services offered by an access point (AP), typically at a Wi-Fi hot spot. 
+
+The ANQP communicates metadata useful in a mobile device's network selection process including the AP operator's domain name, the IP addresses (Internet Protocol addresses) available at the AP, and information about potential roaming partners accessible through the AP.
+
+When a subscriber queries an AP using the ANQP, that user receives a list of items that describe the services available, without having to commit to a network. In addition to the above-mentioned items, these elements can include:
+
+Capabilities of the network(s) being accessed.
+Venues associated with the AP.
+Authentication types required by or available with the AP.
+Network Address Identifier (NAI) realms accessible through the AP.
+Information about 3G (third-generation mobile telephony) cellular networks available through the AP.
+Emergency Alert System (EAS) message Uniform Resource Identifiers (URIs).
+Emergency calling instructions (telephone numbers, for example).
+The geospatial and civic locations of the AP.
+The ANQP forms the basis for 802.11u, an amendment to the IEEE 802.11 set of protocols for wireless local area network (WLAN) operation. Published in February 2011, the 802.11u standard provides for connection to external networks using common wireless devices such as smartphones and tablet PCs. One of the most notable applications of 802.11u is the emerging standard called Hot Spot 2.0 (HS 2.0) for public-access Wi-Fi.
+
+
+2. 10.24 WLAN interworking with external networks procedures (spec 10.24)
+   IEEE80211U的技术提供了更好的连接管理对于WiFi,可以让Station更好的选择是否加入这个网络。interWorking with external networks， 互通与外部的网络，指示这个AP与外部网络互通的情况，主要通过查询协议实现(ANQP).
+   ANQP  Acess Network Query Protocal.
+   通过ANQP的request和response，我们可以获取很多的AP的信息, 是否支持ANQP或者interWorking with external network 可以通过beacon和probe response获取。
+   ANQP在request的时候，可以指定要查询的ANQP elements ID，也就是想知道的内容格式如下：
+   Query List 256 8.4.4.2                         // 在reqest中使用，需要查询的element ID
+   Capability List 257 8.4.4.3                    // 大部分都是厂商制定的信息
+   Venue Name 258 8.4.4.4                         // 地点名字: 例如，该信息可以被用于帮助用户选择适当的BSS，用以关联。零个或多个地点名称字段可被包括在相同或不同的语言。
+   Emergency Call Number 259 8.4.4.5
+   Network Authentication Type 260 8.4.4.6
+       网络认证类型，当Beacon或者probe response帧中的ASRA字段为1的时候，这个字段起作用，ASRA为1表示 network with gust acess...， 也就是需要Web认证， 包含的字段：
+       0: Acceptance of terms and conditions
+           这个网络请求用户接受URL中所列出的条款和条件。
+       1: On-line enrollment supported 在线注册portal
+       2: http/https redirection 需要重定向到URL进行一些操作步骤
+       3: Dns redirection DNS重定向
+             
+   Roaming Consortium 261 8.4.4.7                // 漫游联盟   关于漫游联盟和/或者SSP们的信息列表其网络是可以被这个AP访问的。
+   IP Address Type Availability 262 8.4.4.9      // 支持的IP地址的版本和类型，IPV4／IPV6, 所谓IP地址的类型主要是指示IPV4地址是NAT的，或者公网的，端口受限等等
+   NAI Realm 263 8.4.4.10                        // 网络访问标识符  网络访问标识符列表代表SSP或者其他的网络实体他们的网络或服务可以通过这个AP访问。每个网络访问标识符里面包含认证用的一个或多个EAP的方法, 
+                                                 // 以及需要的认证参数列表
+   3GPP Cellular Network 264 8.4.4.11            // 第三代蜂窝网络  主要是AP的网络代码和国家码，协助station选择一个AP使用的
+   AP Geospatial Location 265 8.4.4.12           // AP地址位置
+   AP Civic Location 266 8.4.4.13
+   AP Location Public Identifier URI 267 8.4.4.14
+   Domain Name 268 8.4.4.15
+   Emergency Alert Identifier URI 269 8.4.4.16
+   TDLS Capability 270 8.4.4.18
+   Emergency NAI 271 8.4.4.17
+   Neighbor Report 272 8.4.4.19
+   Reserved 273– 56796 n/a
+   Vendor Specific 56797 8.4.4.8
+
+
+
+3. GAS  generic advertisement service (ANQP)
+
+
+
+2016.6.15 
+
+1.  关于power Save的具体流程
+    STA的两种节电程度：MAX Power Save（Sleep、Awake）和Fast Power Save（流量）
+    (1). STA进入省电模式, 进入睡眠模式之前，发送NULL帧，frame control flag中的Power Management位为1
+    Frame Control Flags: 00011001
+      0... ....  Non-strict order
+      .0.. ....  Non-Protected Frame
+      ..0. ....  No More Data
+      ...1 ....  Power Management - power save mode
+      .... 0...  This is a Re-Transmission
+      .... .0..  Last or Unfragmented frames
+      .... ..0.  Not an Exit from the Distribution System
+      .... ...1  To the Distributions System
+    (2). AP收到PowerManagement帧之后，应该会送ACK，关于ACK中的Power Management Bit是1还是0,暂时没有确认到，需要有机会确认一下。不过根据规范,
+    
+    The Power Management field is reserved in all frames transmitted by the AP.
+       应该在ACK中不会标识这种信息。
+    (3). STA通过Beacon Interval计算Listen Interval，通过关联请求帧（Association Requist）告知接入点（一般侦听间隔为10个Beacon时间时间，即1000ms, 不过在qcom的driver配置上，这个值默认为1,也就是100ms）。 Listen Interval, 也就是station休眠的时间，多长时间唤醒一次接受beacon帧， 查看是否有自己缓存的数据。
+    基于电源状态位变化的报文接收（由PowerSave状态进入Awake状态）、使用PS-Poll（在PS状态下通过Beacon帧得知AP处有缓存报文）报文接收.
+    AP为STA缓存帧，设定传输指示映射TIM中与STA的AID对应的位，通过Beacon发送.
+    (4). STA在侦听期间通过Beacon帧，发现有为自己缓存的帧，则进入Awake状态并通过发送PS-Poll帧，请求AP处缓存的帧。
+    (5). 每一个PS-Poll帧只能请求一个缓存的数据帧，通过More data位获知是否还有缓存的帧，如果没有则进入Sleep状态
+
+2. IEEE80211E APSD电源管理(Automatic Power Save Deliver)
+    • STAs do not use PS-Poll frames to retrieve buffered data
+    • STAs switch from Power Save Mode to Active Mode when
+    they want to retrieve buffered data. This is done by
+    sending a frame (Any data frame or Null Data frame) to flip
+    the Power Management bit. When the STA is awake, the
+    AP sends all data in the buffer.
+
+
+2016.6.16
+    MSDU - MAC Service Data Unit，MAC服务数据单元
+    在无线网络安全中，MSDU经过添加完整性校验MIC、分帧、添加IV、加密、添加80211 MAC头部后，成为MPDU（MAC Protocol Data Unit，MAC协议数据单元）
+    MSDU可以认为是Ethernet报文，而MPDU指经过802.11封装过的数据帧。
+    帧聚合技术又包含针对MSDU的聚合（A-MSDU）和针对MPDU的聚合(A-MPDU)：
+    A-MSDU
+    A-MSDU技术是指把多个MSDU通过一定的方式聚合成一个较大的载荷。这里的MSDU可以认为是Ethernet报文。通常，当AP或无线客户端从协议栈收到报文（MSDU）时，会打上Ethernet报文头，这里我们称之为A-MSDU Subframe；而在通过射频口发送出去前，需要逐一将其转换成802.11报文格式。而A-MSDU技术旨在将若干个A-MSDU Subframe聚合到一起，并封装为一个802.11报文进行发送。从而减少802.11MAC头的开销，同时减少了应答帧的数量，提高了报文发送的效率。
+    A-MPDU
+    与A-MSDU不同的是，A-MPDU聚合的是经过802.11报文封装后的MPDU，这里的MPDU是指经过802.11封装过的数据帧。通过一次性发送若干个MPDU，减少了发送每个802.11报文所需的PLCPPreamble、PLCPHeader，从而提高系统吞吐量。
+
+
+2016.6.28
+   关于隐藏SSID
+   通常情况下我们的扫描分为被动扫描(Listen Beacon)和主动扫描(send broadcast probe request).
+   但是对于隐藏SSID的情况下，通过被动扫描和主动扫描到的beacon中的ssid为empty。
+   因此，隐藏SSID的情况下需要在发送单播的probe request，也就是需要在probe request中加入ssid字段，同时，由于不知道AP在那个信道，所以，需要在所有的信道发送这个SSID的probe request，相当耗时。
+   
+   确认了下qca的driver，默认情况下的扫描都是passive的，除非有隐藏的ssid的时候，会使用active扫描。
+
+2016.6.24
+
+  ConnectivityService
+  ConnectivityService控制着整个网络的所有的可对外连接的服务设备，比如wlan,有线网卡，数据网络，蓝牙网络。具体系统使用那个接口对外通信都由connectivityService进行控制。
+
+  1.  NetworkFactory
+  每个具体的硬件接口通过NetworkFactory和NetworkAgent与ConnectivityService进行沟通。
+  NetworkFactory， 顾名思义，就是网络工厂，每个网络工厂可以产生多个NetworkAgent，也就是可以产生多个具体的网络接口，根据不同的请求来建立不同的连接。比如数据接口就有彩信接口，数据上网接口，LTE网络接口，当有APP需要请求彩信数据的时候，数据网络的NetworkFactory就会建立一个NetworkAgent，注册到ConnectivityService
+  2. requestNetwork
+  当ConnectivytService中有request请求的时候, 会将request发送给每一个NetworkFactory评估，是否对这个request进行处理，比如建立连接等。关于这个NetworkFactory是否对这个request进行处理的主要依据是分数。分数是指的当前接受这个请求的网络的分数。所以，每个NetworkFactory都会记录所有的NetworkRequest, request的分数一旦发送到NetworkFactory中，就不会被改变了，没有相关接口可以改变这个分数
+     requestNetwork分为两种类型，一种情况是LISTEN, 一种是REQUEST，LISTEN是监听某个Network的变化, Requst是请求某种类型的网络，需要的参数不相同
+     (1). Listen, 注册接收匹配request请求的所有网络的通知, networkCallback会一直被调用直到这个应用退出。
+     public void registerNetworkCallback(NetworkRequest request, NetworkCallback networkCallback);
+     (2). Request, 注册
+     public void requestNetwork(NetworkRequest request, NetworkCallback networkCallback);
+  requestNetwork的时候ConnectivityService所进行的操作
+     (1). 要建立一个NetworkRequestInfo的对象来保存request的信息，比较重要的就是mBinder和messager两个信息，mBinder是由ConnectivityManager在调用ConnectivityService的时候创建的APP端的BBinder对象，ConnectivityService拿到的是Remote Binder的对象，也就是BpBinder, 这个的主要作用的用来监听APP的进程退出的信息， 当进程退出的时候，Binder对象销毁，BpBinder通过linkToDeath之后，可以收到binderDied回调。
+     messager的作用主要是用户讲network变化的信息通知到APP。
+     (2). 当handleRegisterNetworkRequest时候，会调用rematchAllNetworksAndReqests, 也就是为刚刚添加的request找到一个合适的NetworkAgent, 如果当前的NetworkAgent没有匹配的，那么需要将这个request发送到NetworkFactory进行评估，如果某一个NetworkFactory接受这个requst，那么将会建立网络连接并注册NetworkAgent。
+     (3). 除了使用Messager的方式，还有一种PendingIntent的方式可以接受网络状态的变化，通过requestNetwork(, PendingIntent)的方式调用, 最终在ConnectivityService中会调用PendingIntent进行send.
+
+
+
+
