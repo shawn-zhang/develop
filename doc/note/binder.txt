@@ -1,0 +1,86 @@
+Binder IPC相关
+
+1. ServiceManager的作用
+   ServiceManager的主要作用是一个DNS服务器, 用于将字符串的一个服务名字,转换成 Binder native的 BpBinder. 也就是当我们通过checkService向ServiceManager来获取Binder服务的时候, 必须要通过Parcel才可以. 也就是除了ServiceManager这个服务自己的BpBinder可以不通过Parcel传输,其他的都要通过Parcel传输,因为Parcel传输的时候, 会通过标准接口初始化并创建BpBinder对象,如果是Java的Parcel,同时会创建BinderProxy, BinderProxy是BpBinder的java端对象,通过JNI进行调用.
+   因此,如果你能直接获取服务端对象的句柄, 可以不同过ServiceManager进行服务的创建. 
+
+2.  关于Service端句柄的由来.
+  Binder对象的句柄, 是通过Kernel创建的,也就是这个Binder如果进行通信,必须要通过Kernel的传输或者叫注册才可以.
+  
+  Service端构造的Binder属于 BBinder, 也就是说每一个Binder的Service必须继承自 BBinder, java端的Service虽然不继承自这个BBinder, 在JNI里面传输的时候也会创建一个BBinder, 然后由这个BBinder拿着Java端的对象,进行调用,也就是反射调用.
+  这个BBinder会在传输的时候, 比如addService的时候, AddService实际上是Server端与ServiceManager进行的通信,也必须使用Parcel进行序列化传输.
+  下面这个就是ServiceManagerProxy进行注册Service的时候的Parcel封装, 最重要的就是writeStrongBinder, 这个是Java层的服务.C++的也同理
+    public void addService(String name, IBinder service, boolean allowIsolated)
+        throws RemoteException {
+        Parcel data = Parcel.obtain();
+        Parcel reply = Parcel.obtain();
+        data.writeInterfaceToken(IServiceManager.descriptor);
+        data.writeString(name);
+        data.writeStrongBinder(service);
+        data.writeInt(allowIsolated ? 1 : 0);
+        mRemote.transact(ADD_SERVICE_TRANSACTION, data, reply, 0);
+        reply.recycle();
+        data.recycle();
+    }
+    
+    c++层的ServiceManager的AddService接口
+    virtual status_t addService(const String16& name, const sp<IBinder>& service,
+        bool allowIsolated)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IServiceManager::getInterfaceDescriptor());
+        data.writeString16(name);
+        data.writeStrongBinder(service);
+        data.writeInt32(allowIsolated ? 1 : 0);
+        status_t err = remote()->transact(ADD_SERVICE_TRANSACTION, data, &reply);
+        return err == NO_ERROR ? reply.readExceptionCode() : err;
+    }
+
+    这两个同样都使用Parcel进行数据的封装.在Kernel的中,也会按照Parcel封装的格式,进行解析, Parcel也就是Binder的协议栈. 那么协议栈是怎样的呢? Parcel在封装数据的时候, 申请了两个Buffer, 一个用于存储普通类型的数据, 比如int, long, String等, 另一个用户存储Object对象类型的数据, 这些Object对象并不是指的是Java中的对象,而是Binder自己规定的几种对象,总共这几种对象
+     BINDER_TYPE_BINDER = B_PACK_CHARS('s', 'b', '*', B_TYPE_LARGE),
+     BINDER_TYPE_WEAK_BINDER = B_PACK_CHARS('w', 'b', '*', B_TYPE_LARGE),
+     /* WARNING: DO NOT EDIT, AUTO-GENERATED CODE - SEE TOP FOR INSTRUCTIONS */
+     BINDER_TYPE_HANDLE = B_PACK_CHARS('s', 'h', '*', B_TYPE_LARGE),
+     BINDER_TYPE_WEAK_HANDLE = B_PACK_CHARS('w', 'h', '*', B_TYPE_LARGE),
+     BINDER_TYPE_FD = B_PACK_CHARS('f', 'd', '*', B_TYPE_LARGE),
+    其他的非对象类型的传输, Parcel传输是不管顺序的, 如果CLient端写了个Int32, 那么对端读取的时候也得读取个Int32, 否则数据就全乱了.
+    这些对象会在Kernel中全部解析出来,进行数据处理, 比如BINDER_TYPE_BINDER, 如果这个对象是第一次传输, 那么会创建binder_node, 创建了binder_node之后, binder_node会被记录在自己的进程的proc信息中, 同时, Kernel会对这个binder_node增加引用, 告诉上层这个对象不能释放。然后这个Binder最终还是要传输到对端的， 那么driver将其转换成 binder_handler进行传输, 那么这个handler是多少呢， 同样， driver会申请一个binder_ref， 然后这个应用里面会保存一个handler，这个handler也就是BpBinder中所保存的那个hander， 这个handler是对端进程中的一个唯一refs句柄， 通过refs的数量一直++来确定， binder_refs同时也会保存binder_node， 最终将这个binder_ref加入到目标进程的refs链表中。 当对端需要向服务端发送请求的时候， 通过handler找到binder_refs，binder_refs找到binder_node,也就找到了对端的进程。加入对端的进程todo列表进行通信就可以了
+
+Binder driver
+
+binder_transaction
+  |->  case BINDER_TYPE_BINDER:
+      |->  binder_new_node
+      |->  binder_inc_ref
+          |-> binder_inc_node
+              |-> BR_ACQUIRE
+                  |-> sp<JavaBBinder> incStrong
+
+  
+executeCommand
+  |-> BR_TRANSACTION
+      |-> buffer(Parcel).ipcSetDataReference(..., freeBuffer, ...)
+      |-> ~Parcel();
+          |-> freeDataNoInit();
+          |-> mOwner(IPCThreadState::freeBuffer)(this, mData, mDataSize, mObjects, mObjectsSize, mOwnerCookie);
+              |-> state->mOut.writeInt32(BC_FREE_BUFFER);
+                  |-> binder_transaction_buffer_release
+                      |-> binder_dec_node(node, fp->type == BINDER_TYPE_BINDER, 0);
+
+
+BpBinder::onFirstRef()
+    |-> ipc->incStrongHandle(mHandle);
+        |-> mOut.writeInt32(BC_ACQUIRE);
+            |-> binder_thread_write(Kernel)
+                |-> BC_ACQUIRE (binder_inc_ref(ref, 1, NULL);)
+                    |-> node->internal_strong_refs++;
+
+BpBinder::onLastStrongRef
+    |-> ipc->decStrongHandle(mHandle);
+        |-> mOut.writeInt32(BC_RELEASE);
+            |-> binder_thread_write(Kernel)
+                |-> BC_RELEASE(binder_dec_ref(ref, 1);)
+                    |-> ref->strong--;
+                    |-> binder_dec_node();
+                        |-> node->internal_strong_refs--;
+                    |-> binder_delete_ref(ref);

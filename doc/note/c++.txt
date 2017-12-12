@@ -1,0 +1,93 @@
+
+2016-03-30
+
+memory barrier
+内存屏障
+
+主要解决编译器优化乱序，cpu执行乱序等优化乱序问题。
+
+比如内核的链表无锁查询：
+
+struct el *insert(long key, long data)
+{
+    struct el *p;
+    p = kmalloc(sizeof(*p), GFP_ATOMIC);
+    spin_lock(&mutex);
+    p->next = head.next;
+    p->key = key;
+    p->data = data;
+    smp_wmb();    //内存屏障，保证顺序这条语句之前的不会被调整到这条语句之后执行。
+    head.next = p;
+    spin_unlock(&mutex);
+}
+
+struct el *search(long key)
+{
+    struct el *p;
+    p = head.next;
+    while(p != &head) {
+        if(p-key == key) {
+            return (p);
+        }
+        p = p->next;
+    }
+    return (NULL);
+}
+
+C++中的memory_order都起到了内存屏障的作用。
+enum memory_order {
+    memory_order_relaxed,
+    memory_order_consume,
+    memory_order_acquire,
+    memory_order_release,
+    memory_order_acq_rel,
+    memory_order_seq_cst
+};
+
+如果一个线程A对一块内存 m 以 release 的方式进行修改，那么在线程 A 中，所有在该 release 操作之前进行的内存操作，都在另一个线程 B 对内存 m 以 acquire 的方式进行读取之后，变得可见。
+线程A：
+a.store(3);
+b.store(4);
+m.store(5, release);
+
+
+线程B：
+e.load();
+f.load();
+m.load(acquire);   //在这个之前线程A的所有内存写操作一定要被执行完成。
+g.load();
+h.load();
+同时还起到了内存屏障的作用，在m.load(acquire);之前的代码不能被调整到之后运行。在线程A中m.store(5, release);之前的代码也不能被调整到之后运行。
+
+
+
+2016.9.8
+
+内存越界:
+如果是stack的内存越界，android会通过编译器的
+__builtin___memcpy_chk进行具体的检查，也就是bionic提供的工具里面都有内存检查的方面，包括memcpy和memmove等内存操作方法。
+检查的原理是，在编译的时候，编译器会将数组的大小传入memcpy或者memmove中，也就是编译器会将目标数组的大小放到真正的memcpy中。
+比如memcpy memcpy: prevented write past end of buffer
+
+
+
+2017.8.8
+
+RefBase中的强引用和弱引用管理
+在Android c++中，如果想使用sp或者wp的智能指针， 对象需要继承子RefBase类， 然后方可使用sp和wp进行对象的管理。那么sp和wp的区别是什么呢。
+sp也就是StrongRefence, 当被这个引用了之后， RefBase里面的mRefs->mStrong成员变量会通过Automic加1， 同时，mWeaks也会+1。 当sp释放的时候，减少引用的时候， mRefs->mStrong会减1， 当其减为0的时候， Refbase会delete this, 也就是delete自己。 然而在RefBase的析构函数中并不会删除mRefs变量。 当mWeaks， 也就是弱引用计数减少到1的时候，才会真正释放mRefs。
+
+因此， 如果是强引用， RefBase对象是不会被释放的。也就是所引用的对象不会被释放。
+如果是弱引用，不能释放的是RefBase的mRefs对象， 但是RefBase是可能会被释放的。当使用WP的时候， 获取的对象有可能是NULL的， 因此需要判断。
+
+
+
+
+
+
+
+
+
+
+
+

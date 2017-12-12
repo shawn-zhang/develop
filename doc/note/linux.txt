@@ -1,0 +1,150 @@
+2016-03-30
+1. systrace
+  systrace里面的atrace实际上是利用了ftrace里面的trace_marker功能，使用nop tracer就可以工作。
+  /sys/kernel/debug/tracing/trace_marker是可以写入一个marker，此时/sys/kernel/debug/tracing/trace会有一个带有时间的标记以及运行的当前CPU。
+  android在函数进入的时候会写一个begin的marker，在推出的时候会标记一个推出的marker，然后systrace可以根据这个绘制出图形。
+
+2. ftrace
+  ftrace有很多event，使用nop就可以跟踪调试，比如schedue事件，可以记录每个进程之间的相互切换和调度的信息。
+
+
+2016-05-09
+1. cache line 问题。
+一个L1 DATA CACHE相当于一块小的内存，我们假设它为16K大，它会与一般物理内存交互。
+它和内存交互一般一次传输16个字节(32个字节),也就是:   
+CACHE 字节0-15一次写到/读取物理内存 ，字节16-31一次写到/读取物理内存.32-47 ... ...   
+这些一次被传输的字节被称为cache line。   
+另外，cache写到物理内存的位置不是任意的，   
+我们假定内存为64K,那么cache地址0的数值只能和物理内存的地址0, 16K, 32K交互；cache地址1的数值只能和物理内存的地址1, 16K+1, 32K+1交互   
+。。。 。。。cache地址16K-1的数值只能和物理内存的地址6K-1, 16K+16K-1, 32K+16K -1交互   
+这说明了两点:   
+(1)假设对象A的一个字段长为16个字节，如果它放在物理地址 0-15,那么它将和cache的第一个cache line 交互，如果放在物理地址 8-23,那么   
+如果CPU要访问这个字段，必须将第一个和第二个cache line 都读入，才能获得这个字段的信息，显然这样速度慢，所以一般字段需要cache line对齐，   
+在这里就是16个字节对齐。   
+(2)关于colour   
+一般一个对象某些字段访问频繁些。   
+假定一个cache(这个cache指slab的cache,不是上面提到CPU的L1 DATA CACHE)占用5个页面也就是20K.   
+假定其中对象大小为32个字节，前16个字节访问频繁许多。   
+假定对象A起始于物理地址0，对象C起始于31,对象B起始于物理地址16K,那么对象A，对象B的前16个字节都和第一个cache line 交互，后16个字节都和第二个cache line 交互   
+对象C前16个字节与第3个cache交互。   
+我们假定内核访问A后就访问B,再访问A,交错进行，并且前16个字节次数都是50次，后16个为10次。C也是。   
+这样第一个cache line 要交互100次，第二个20次，一共120次。   
+如果让对象B向后移动16个字节，也就是对象B的前16个字节与第二个cache line 交互，后16个与第3个交互。   
+那么第一个为2次，因为只有开头结尾2次要与内存交互，其它每次都在L1 DATACACHE 中写就可以了。第2个cache line为20次左右(后面的只须在CACHE中读写),第3个cache line为20次，   
+3个line一共才41次，你不妨仔细模拟一下。   
+所以进行错位能降低CACHE的交互次数，从而提高CPU处理速度能力。   
+这个错位(也就是上面的16个字节)就是colour.  
+
+2. prefetchw
+  预取指令 arm pld:
+  pld [r1, #0] ##将r1地址里面的数据预取到cache, offset一般为64-byte的倍数，也就是r1
+
+3. SMP, MPP
+   SMP -- Symmetrical Multi-Processing
+   MPP -- Massively Parallel Processing
+
+
+4. cache和内存的关联方式(associativity)
+   根据cache和内存之间的映射关系的不同，cache可以分为三类：
+   一类是全关联cache(full associative cache),
+   一种是直接关联cache(direct mapped cache),
+   还有一种是N路关联cache(N-ways associative cache).
+
+  1.全相联型cache
+    顾名思义，全相联型cache的特点就是cache内的任何一个cache line都可以映射到内存的任何一处地方，这使得全关联cache的命中率是最高的，但是CPU要想访问和内存相互映射的cache不得不把内存地址与大量的cache标志(tag)
+    进行比较匹配，这使得效率下降，而且对于cache，其内部电路十分复杂，因此只有容量很小的cache才会设计成全关联型的（如一些INTEL处理器中的TLB Cache）.对于全关联方式,内存地址的解析方式如下图所示：
+     |   TAG  |  OFFSET |
+    可以看到内存地址只解析成tag和offset两个域，其中tag是和cache line对应的整个物理地址，而offset即是该内存单元在cache line中的偏移。
+
+  2. 直接相联型cache
+    设一个cache中总共存在N个cache line,那么内存被分成N等分，其中每一等分对应一个cache line,需要注意的是这里所说的1等分只是大小上的一等分，在内存上并不是完全连续的。具体的来说，假设cache的大小事4M，而一个cache line的大小是64B，那么就一共有4M/64B=65536个cache line,那么对应我们的内存，0x00000000~0x00000000+64B, 0x00000000+4M~0x00000000+4M+64B,  ……，就这样被分为很多个区段，对于一个确定的cache line,如第0个，那么在这么多区段中只有一个区段能被映射进去，没有被映射进去的区段不能占用其他的cache line,这样就势必导致cache的命中率下降，所以直接关联是一种很''死''的映射方法，它的命中率是最低的，但是其实现方式最为简单，匹配速度也最快。对于直接关联方式，内存地址的解析如下图所示
+    | TAG  | cache set | offset |
+
+  3. N路相联型cache
+    N路相连cache是前两种cache的折中形式，在这种方式下，内存同样被分为很多区域，一个区域的大小为N个cache line的大小，一个区域映射到对应的N个连续的cache line,并且该区域内的单元可以映射到N个cache line中的任意一个。假设一个4-路相联cache,其大小为64M，一个cache line的大小为16K，那么总共有64M/16K=16384个cache line,但是在4-路相联的情况下，我们并不是简简单单拥有16384个cache line,而是拥有了16384/4=4096个区域(sets),每个区域有4个cache line.一个内存单元可以缓存到它所对应的set中的任意一个cache line中去。对于内存地址的解析，N路相联型和直接相联型在结构上是一样的，但是因为N路相联型的cache中的cache set有N个cache line,所以在通过内存地址单元的cache set域确定相应的set外，还要通过tag域来确定对应的cache line.
+    内存地址的解析如下图所示:
+    |  TAG  | set index |  bit offset |
+
+    举例说明寻址过程，一个内存地址被分解为TAG+SETindex+offset，首先，一个8 way set的32KB的cache, 代表每个set有8个cache line, 每个cache line 64byte, 因此32K cache也就共有64个set, 需要6bit表示其寻址范围, 64byte的cache line需要 6bit表示offset, 因此，TAG占剩下的24bit. 
+    寻址过程， 首先根据set index的6bit确定唯一所在的offset, 然后在这个set中遍历所有的8个cache line，比对TAG, 如果TAG能够匹配，那么，说明cache命中。TAG在每个SET中是唯一的， 因为24bit后面的6bit表示了set index, 因此相同TAG(高24bit)被分配进不同的set中
+
+   4. VIVT/PIPT/VIPT
+   VIVT（Virtual index Virtual tag）。寻找cache set的index和匹配cache line的tag都是使用虚拟地址
+   PIPT（Physical index Physical tag）。寻找cache set的index和匹配cache line的tag都是使用物理地址
+   VIPT（Virtual index Physical tag）。寻找cache set的index使用虚拟地址，而匹配cache line的tag使用的是物理地址。
+   采用PIPT的话，CPU发出的虚拟地址要先经过MMU翻译成物理地址之后，再输入到cache中进行cache hit or miss的判断，毫无疑问，这个串行化的操作损害了性能。但是这样简单而粗暴的使用物理地址没有歧义，不会有cache alias。VIVT的方式毫无疑问是最快的，不需要MMU的翻译直接进入cache判断hit or miss，不过会引入其他问题，例如：一个物理地址的内容可以出现在多个cache line中，这就需要更多的cache flush操作。反而影响了速度（这就是传说中的cache alias，具体请参考下面的章节）。采用VIPT的话，CPU输出的虚拟地址可以同时送到MMU（进行翻译）和cache（进行cache set的选择）。这样cache 和MMU可以同时工作，而MMU完成地址翻译后，再用物理的tag来匹配cache line。这种方法比不上VIVT 的cache 速度, 但是比PIPT 要好。在某些情况下，VIPT也会有cache alias的问题，但可以用巧妙的方法避过
+
+   5 cache alias
+    在linux内核中可能有这样的场景：同一个物理地址被映射到多个不同的虚拟地址上。在这样的场景下，我们可以研究一下cache是如何处理的。
+对于PIPT，没有alias，因为cache set selection和tag匹配都是用物理地址，对于一个物理地址，cache中只会有一个cache line的数据与之对应。
+对于VIPT的cache system，虽然在匹配tag的时候使用physical address tag，但是却使用virtual address的set index进行cache set查找，这时候由于使用不同的虚拟地址而导致多个cache line针对一个物理地址。对于linux的内存管理子系统而言，virtual address space是通过4k的page进行管理的。对于物理地址和虚拟地址，其低12 bit是完全一样。 因此，即使是不同的虚拟地址映射到同一个物理地址，这些虚拟地址的低12bit也是一样的。在这种情况下，如果查找cache set的index位于低12 bit的范围内，那么alais不会发生，因为不同的虚拟地址对应同一个cache line。当index超过低12 bit的范围，就会产生alais。在实际中，cache line一般是32B，占5个bit，在VIPT的情况下，set index占用7bit（包括7bit）一下，VIPT就不存在alias的问题。在我接触到的项目中，ARM的16K cache都是采用了128个cache set，也就是7个bit的set index，恰好满足了no alias的需求。
+   对于VIVT，cache中总是存在多于一个的cache line 包含这个物理地址的数据，总是存在cache alias的问题。cache alias会影响cache flush的接口，特别是当flush某个或者某些物理地址的时候。这时候，系统软件需要找到该物理地址对应的所有的cache line进行flush的动作。
+
+2016.6.24
+关于签名机制
+
+现在一般的情况是
+如果是签名，是私钥签名，公钥校验。
+如果是加密，是公钥加密，私钥解密。
+
+1. HASH算法
+   MD5， SHA等都是hash算法, 他们都是一种散列算法，其算法的特点是，可以把任意长度的字符串经过运算生成固定长度的字符串，并且这个产生的字符串代表着原来字符里的所有字符。
+
+2. 摘要
+   要是将任意长度的消息变成固定长度的短消息, 它类似于一个自变量是消息的函数，也就是Hash函数。数字摘要就是采用单项Hash函数将需要加密的明文“摘要”成一串固定长度（128位）的密文这一串密文又称为数字指纹，它有固定的长度，而且不同的明文摘要成密文，其结果总是不同的，而同样的明文其摘要必定一致。
+
+3. 现在通常情况下的签名都是这样做的，
+   (1). 使用非对称加密算法(RSA)生成公钥和私钥, signing_key.x509为证书，signing_key.priv为私钥
+        openssl req -new -nodes -utf8 -sha256 -days 36500 -batch -x509 \
+               -config x509.genkey -outform DER -out signing_key.x509 \
+                   -keyout signing_key.priv
+
+   (2). 将原始文件使用SHA/MD5等HASH算法生成数字摘要。
+       openssl dgst -sha512 -binary wlan.ko -out wlan.ko.dgst
+   (3). 使用RSA算法用私钥对摘要生成签名。
+       openssl rsautl -sign -inkey signing_key.priv -keyform PEM  -in wlan.ko.dgst -out wlan.ko.sig;
+   (4). 使用RSA算法利用公钥对签名进行校验，实际上就是对签名数据进行解密，还原成摘要。
+       openssl rsautl -verify -inkey signing_key.x509 -certin -keyform DER -in wlan.ko.sig -out wlan.ko.vfy
+   (5). 校验端收到原始数据+签名后， 将原始数据重新生成摘要
+       openssl dgst -sha512 -binary wlan.ko -out wlan.ko.dgst
+   (6). 比较原始摘要和还原的摘要，确定是否正确。
+       compare wlan.ko.vfy wlan.ko.dgst;
+   
+
+2016.8.12 sendfile.
+    更快的KERNEL拷贝方法
+
+2016.8.29
+    关于Linux VFAT区分大小写问题
+    shortname=lower, 表示不区分大小写
+    shortname=mixed, 表示区分大小写
+/dev/block/bootdevice/by-name/modem /firmware vfat ro,context=u:object_r:firmware_file:s0,relatime,uid=1000,gid=1000,fmask=0337,dmask=0227,codepage=437,iocharset=iso8859-1,shortname=lower,errors=remount-ro 0 0
+/dev/block/bootdevice/by-name/bluetooth /bt_firmware vfat ro,context=u:object_r:bt_firmware_file:s0,relatime,uid=1002,gid=3002,fmask=0337,dmask=0227,codepage=437,iocharset=iso8859-1,shortname=lower,errors=remount-ro 0 0
+
+2016.8.29
+   打开Linux的ftrace的exit方法的trace
+   echo 1 > /sys/kernel/debug/tracing/stacktrace
+   echo 1 > /sys/kernel/debug/tracing/events/sched/sched_process_exit/enable
+
+2017.8.29
+  2&> /dev/null 将标准错误(stderr)输出到/dev/null中
+  1&> /dev/null 标准输出重定向到/dev/null
+  0&< test.file 标准输入重定向
+
+2017.10.13 23.36
+  qcom在debugfs中增加了密码配置, 需要在挂在的debugfs的时候用password进行挂载, 如果没有指定密码选项, ls是无法看到文件的. 密码没有找到, 但是密码生成的摘要在配置文件中有, 比如jason的配置文件中有
+  CONFIG_DEBUG_FS_DIGEST0=0xbc28d0f6
+CONFIG_DEBUG_FS_DIGEST1=0x5bcdd759
+CONFIG_DEBUG_FS_DIGEST2=0xda05e164
+CONFIG_DEBUG_FS_DIGEST3=0x41652f82
+CONFIG_DEBUG_FS_DIGEST4=0x7475df91
+CONFIG_DEBUG_FS_WHITE_LIST=":/tracing:/wakeup_sources:/tzdbg:/kgsl:"
+   如果想关掉, 直接将这几个选项设置为0即可
+   
+2017.10.13 23.36
+   关于Kernel里面的dynamic_debug
+   在kernel中用pr_debug输出的log可以通过dynamic_debug的方式进行log的开关. 
+   pr_debug被分成了几种类型,
+       一是CONFIG_DEBUG之后, 会直接所有的都输出. 
+       二是CONFIG_DYNAMIC_DEBUG配置之后,就可以使用动态开关, 动态开关的方式有几种, 简单介绍几个, 如果要打开某个文件的所有debug开关, echo -n "file bus.c +p" > /sys/kernel/debug/dynamic_debug/control, 关闭: echo -n "file bus.c -p" > /sys/kernel/debug/dynamic_debug/control, 如果打开某一个具体的行, 可以 echo 'file svcsock.c line 1603 +p' > /sys/kernel/debug/dynamic_debug/control, 删除-p即可. 具体哪些行号的debug可以打开, 可以通过cat /sys/kernel/debug/dynamic_debug/control找到具体的debug行号.
+   

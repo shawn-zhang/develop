@@ -1,0 +1,905 @@
+名词解释:
+   pan&scan:  源与目标设备的播放比例不同时会进行适配处理并进行全屏
+   letterBox: 如果比例不匹配，会加入黑边。
+   OPAQUE:    不透明
+   TRANSPARENT: 透明
+   TRANSLUCENT： 半透明
+   
+ Chrome://tracing
+
+2015.12.21 22:08
+1. Layer, 在Android中，所有需要显示的内容都要通过surfaceflinger来创建自己的surface，每个Activity都对应了一个Surface，这个surface在surfaceFlinger总就对应一个layer, Layer里面包含了做重要的BufferQueue，有了BufferQueue，我们就可以申请图形buffer了,并且还可以操作这块图形buffer的显示。同时Layer中还记录了这个应用显示的其他信息，比如剪切域,显示的大小等等有关显示的内容。
+2. LatchBuffer, Draw, onDraw
+2015.12.29 14:34
+1. 关于GRALLOC_HARDWARE_MODULE_ID module模块，这个模块中存在两个设备，一个是GRALLOC_HARDWARE_FB0， 另一个是GRALLOC_HARDWARE_GPU0， 两个id特别相似，仅仅一个是FB0, 另一个是GPU0，同时都是gralloc，也就是一个alloc的buffer是从gpu申请的，一个是alloc的framebuffer的buffer。GPU的buffer，最终也是申请的系统内存，不过都是共享内存。framebuffer是display的buffer.
+2. 关于HWC_HARDWARE_MODULE_ID模块，这个是Hardware composer模块，也就是硬件混合模块，就是将多个frame混合成为一个frame,然后交给display去显示。这里的display实际上就是framebuffer。framebuffer就代替了我们目前的display的所有东西。
+
+
+2016.7.27 
+    
+    SurfaceFlinger模块架构和分析
+
+1. SurfaceFlinger概述
+    SurfaceFlinger的主要作用的对应用创建的Layer进行混合，最终会混合成一个Surface，并将这个surface的内容推送到framebuffer进行显示。SurfaceFlinger中的各个模块也是围绕这这个功能进行创建，包括openGLES, HardwareCompose(HWC), DisplaySyncSource(VsyncSource, Vsync), RenderEngine, Layer, DisplayDevice, FramebufferSurface(DisplaySurface)，MessageQueue(Vsync)。
+    SurfaceFlinger继承了ISurfaceComposer， ISurfaceComposer也就是SurfaceFlinger的调用接口， 另外，ISurfaceComposerClient是SurfaceFlinger::Client的调用接口，App一般通过ISurfaceComposerClient对layer进行设置和修改。在App侧，用SurfaceComposerClient对ISurfaceComposer和ISurfaceComposerClient进行了统一的封装， 调用时直接创建SurfaceComposerClient就可以了。
+
+1.1  如何使用SurfaceFlinger
+    SurfaceFLinger的使用简单介绍
+    使用SurfaceFlinger进行混合, 最好的实例是bootanimation.和surfaceflinger/test实例
+    sp<SurfaceComposerClient> client = new SurfaceComposerClient();
+    sp<IBinder> dtoken(SurfaceComposerClient::getBuiltInDisplay(ISurfaceComposer::eDisplayIdMain));
+    DisplayInfo dinfo;
+    SurfaceComposerClient::getDisplayInfo(dtoken, &dinfo);
+    client->setDisplayProjection(dtoken, orient, destRect, destRect);
+    
+    Client操作或者修改Display的参数
+    enum {
+        eSurfaceChanged             = 0x01,   
+        eLayerStackChanged          = 0x02,   // layerStack改变
+        eDisplayProjectionChanged   = 0x04,   // 显示投影改变
+        eDisplaySizeChanged         = 0x08
+    };
+    eDisplayProjectionChanged:
+        显示投影改变， 所谓投影，就是将layerStackRect投影到显示屏幕上之后，如果大小相同直接显示，如果大小不同，会将起缩放到displayRect内显示， 主要包括下面三个方面的改变， 比如viewport为(10,10,30,30), displayRect为(100, 100, 500, 500)， 那么(10,10,30,30)缩放到100, 100, 500, 500)这个空间内，并把这个空间占满， (100, 100, 500, 500)这个也就代表了我们看到的内容在(100, 100, 500, 500)这个屏幕区域内。
+        orientation:  显示的方向， 比如: 0, 90, 180, 270
+        viewport(layerStackRect): 定义了window Manager坐标空间的那些区域将被使用. 比如， LayerStack为(10,10,30,30)， 那么仅仅这个矩形中的内容被映射到displayRect显示出来，其他内容将不会被显示，
+        frame(displayRect):  显示矩形定义了layerStackRect将会被映射到显示屏幕的何处， 比如将layerStackRect映射到显示屏幕的(100, 100, 500, 500)上，那么layerStackRect将会被缩放在这块空间内。
+    eLayerStackChanged:
+       layerStack改变，应该是当前display有多个layerStack, 每个layerStack里面包含的layer以及layer的Z序是不同的，所以，我们可以指定不同的layerStack的显示(FIXME:求证)
+       eDisplaySizeChanged: 显示大小的改变， 也就是显示屏幕的大小，这个与displayRect是不同的，最终这两个应该是相互交集的显示区域。
+    
+    // 创建绘制surface    
+    sp<SurfaceControl> surfaceControl = client->createSurface(String8("resize"),
+            160, 240, PIXEL_FORMAT_RGB_565, 0);
+
+    sp<Surface> surface = surfaceControl->getSurface();
+
+    SurfaceComposerClient::openGlobalTransaction();
+    surfaceControl->setLayer(100000);
+    SurfaceComposerClient::closeGlobalTransaction();
+
+    ANativeWindow_Buffer outBuffer;
+    surface->lock(&outBuffer, NULL);
+    ssize_t bpr = outBuffer.stride * bytesPerPixel(outBuffer.format);
+    android_memset16((uint16_t*)outBuffer.bits, 0xF800, bpr*outBuffer.height);
+    surface->unlockAndPost();
+
+    surface->lock(&outBuffer);
+    android_memset16((uint16_t*)outBuffer.bits, 0x07E0, bpr*outBuffer.height);
+    surface->unlockAndPost();
+
+    SurfaceComposerClient::openGlobalTransaction();
+    surfaceControl->setSize(320, 240);
+    SurfaceComposerClient::closeGlobalTransaction();
+
+
+1.2 Display
+
+1. 创建display(BuiltinDisplay)
+   在SurfaceFlinger::init的时候，会初始化并创建非虚拟的显示设备， 最重要的是初始化和创建DISPLAY_PRIMARY设备， 这里涉及到两个数据结构，一个是DisplayDeviceState，用户记录每个Display的状态信息，SurfaceFlinger的mCurrentState和mDrawingState主要记录了这两个状态。
+   另外一个是DisplayDevice，代表了显示设备，记录了Device的各种配置信息：
+   在SurfaceFlinger中对于Display的状态和Layer的状态维护主要是通过State进行的，SurfaceFlinger中包含了mCurrentState和mDrawingState， mCurrentState会比mDrawingState更新，mDrawingState是当前正在使用的状态，当两者不相等时，需要将mCurrentState更新到mDrawingState， 这个结构里面包含了当前的所有的显示设备的状态，Layer的状态以及Z序。这样设计的原因应该是SurfaceFlinger为了避免加锁， 当需要更新显示信息的时候，将显示信息更新到 mCurrentState, 等VSync来的时候，再将mCurrentState同步到真正的显示，并同步到mDrawingState中。
+    
+    State mCurrentState;
+    struct State {
+        LayerVector layersSortedByZ;
+        DefaultKeyedVector< wp<IBinder>, DisplayDeviceState> displays;
+    };
+   
+    DisplayDeviceState记录了display的当前的状态信息
+    struct DisplayDeviceState {
+        ...
+        bool isValid() const { return type >= 0; }
+        bool isMainDisplay() const { return type == DisplayDevice::DISPLAY_PRIMARY; }
+        bool isVirtualDisplay() const { return type >= DisplayDevice::DISPLAY_VIRTUAL; }
+        DisplayDevice::DisplayType type;
+        sp<IGraphicBufferProducer> surface;
+        uint32_t layerStack;
+        Rect viewport;
+        Rect frame;
+        uint8_t orientation;
+        uint32_t width, height;
+        String8 displayName;
+        bool isSecure;
+    };
+
+    class DisplayDevice {
+        ...
+        sp<ANativeWindow> mNativeWindow;
+        sp<DisplaySurface> mDisplaySurface;
+
+        EGLConfig       mConfig;
+        EGLDisplay      mDisplay;
+        EGLSurface      mSurface;
+        ...
+    }
+    
+    这两个数据结构会在SurfaceFlinger Init的时候被创建出来，并进行初始化。
+    DisplayDevice是一个单独的模块， 他里面管理和记录了当前Display的所有信息，比较重要的是BufferQueue，BufferQueue是这个Display的显示buffer, 将来这个Display所要显示的内容都会绘制到这个BufferQueue里面，并最终推送给LCD进行显示，这个BufferQueueue在Alloc Buffer的时候，申请的是FrameBuffer的内存，与gralloc的内存是不同的。这个在FramebufferSurface构造的时候已经指定
+    mConsumer->setConsumerUsageBits(GRALLOC_USAGE_HW_FB | GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_COMPOSER);
+    那么， 这个BufferQueue的两端(productor和cousumer)如何使用呢?, producer是会创建成surface，将surface给到openGLES, openGLES就可以使用GPU对内容进行渲染，渲染之后queueBuffer，然后consumer段就被回调了onFrameAvailable，也就是回调到FramebufferSurface的onFrameAvailable
+    void FramebufferSurface::onFrameAvailable(const BufferItem& /* item */) {
+        ...
+        status_t err = nextBuffer(buf, acquireFence);
+            |—> ConsumerBase::acquireBufferLocked
+        ...
+        err = mHwc.fbPost(mDisplayType, acquireFence, buf);
+        ...
+    }
+    这个地方最关键的就是mHwc.fbPost, 将device要显示的内容的buf传递给HWComposer， HWCompser进行显示。
+
+1.3 VSYNC
+1.3.1 surfaceFlinger的VSYNC
+    VSYNC目前都是由HAL的compser来实现的，可能是一个线程，不过现在的一般都是通过kernel获取的屏幕的VSYNC事件。所以，HWCompser会通过hwc_composer_device_1->registerProcs的方式将callback注册到HAL中，HAL会分别回调vsync,hotplug(HDMI),invalidate(screen_refresh).
+    这些回调HWCompser收到之后会回调到SurfaceFlinger，通过SurfaceFlinger在创建HWC的时候设置的EventHandler，SurfaceFlinger继承并实现了EventHandler，所以，也就是会直接回调到SurfaceFlinger.onVSyncReceived和onHotplugReceived，另外invalidate事件，HWCompser会直接调用surfaceFlinger的repaintEverything方法。
+    VSYNC流程, 总共三个线程配合完成这个事件的传递， 分别是DisplayThread(mPrimaryDispSync)， EventThread, Surfaceflinger的主线程， mPrimaryDispSync这个里面包含一个DispSyncThread， 这是一个thread, 负责接受底层HAL的VSYNC， 并进行采样后计算出一个合理的VSYNC时间，然后分发给其注册的Listener, 在Listener注册的时候， 有一个比较重要的参数是phase， 这个字段的意思就是说距离标准VSYNC的偏移，一般APP的VSYNC为0， SurfaceFlinger的VSYNC一般也为0， 并没有偏移。其中EventThread分为SurfaceFlinger的EventThread和APP的EventThread两个线程.
+    关于EventThread主要用于接受PrimaryDispSync发送过来的VSync事件，然后发送给其接收者， 这里分为两个EventThread，一个是App用的，一个是SurfaceFlinger自己用的， 这两个EventThread通常在启动的时候会分别向PrimaryDispSync注册自己的Listener， PrimaryDispSync会通过自己的DisplayThread分发到两个EventThread中
+    EventThread与App之间交互通过了两种方式，一个是Binder， 一个是Socket， Binder处理一些普通配置接口，比如： setVsyncRate， requestNextVsync， 但是Vsync事件的发送和接受是通过Socket来进行的，也就是App端需要一个线程来始终读取这个Socket来接收Vsync事件，见听到Socket事件之后的事情与SurfaceFlinger就没有关系了。
+    另外还有一个SfEventThread， 这个是针对SurfaceFlinger进行创建的Thread， 最终消息会发送到SurfaceFlinger的主线程中进行处理， SurfaceFlinger是个单线程的进程，所有的事务处理都是在主线程中，因此，如果主线程卡住，整个解码就卡屏了。
+    Android对于这个事情封装了标准类： DisplayEventReceiver.cpp, DisplayEventReceiver.java， IDisplayEventConnection的Binder， BitTube的Socket通道。App端使用DisplayEventReceiver进行配置， 使用BitTube接收Vsync事件。SurfaceFlinger端使用BitTube发送Vsync事件。
+   
+    (hw_composer(HAL))procs.vsync
+        |—> HWCompser.hook_vsync
+            |—> HWCompser.vsync
+                |—> SurfaceFlinger.onVSyncReceived
+                    |—> mPrimaryDispSync.addResyncSample
+                        |—> updateModelLocked
+    DispSyncThread(mPrimaryDispSync).thread_loop
+        |—> fireCallbackInvocations
+            |—> DispSyncSource.onDispSyncEvent 
+                |—> EventThread.onVSyncEvent
+                    |—> mCondition.broadcast();
+    EventThread::threadLoop
+        |—> waitForEvent    // 有requestNextVsync事件的才会操作
+            |—> signalConnections->postEvent()
+                |—>DisplayEventReceiver::sendEvents
+    
+    SurfaceFlinger.waitForEvent
+        |—> mEventQueue.waitMessage()
+            |—> mLooper.pollOnce 
+                |—> MessageQueue::eventReceiver 
+                |   |—> DisplayEventReceiver::getEvents
+                |        |—> MessageQueue::mHandler->dispatchInvalidate() -> MessageQueue::mLooper->sendMessage.
+                |—> MessageQueue::Handler::handleMessage
+                    |—> SurfaceFlinger.onMessageReceived
+
+1.3.2 Client的VSYNC
+      DisplayEventReceiver， 这个是app或者App的接受vsync的专门封装的类。
+      sp<ISurfaceComposer> sf(ComposerService::getComposerService());
+      if (sf != NULL) {
+          mEventConnection = sf->createDisplayEventConnection();  //向SurfaceFlinger创建connection
+          if (mEventConnection != NULL) {
+              mDataChannel = mEventConnection->getDataChannel();
+          }
+      }
+      然后通过mEventConnection可以获取到SurfaceFlinger为这个client创建的socket, 这个socket是用于vsync事件接受的，当vsync到来时会将这些信息通过socket广播到各个客户端。
+
+1.4  Display状态修改和Layer
+    1. SurfaceFlinger的Layer代表了一个应用的Surface, 也就是window, 是通过surfaceFlinger->createSurface进行创建，Layer里面包含了producer和Consumer的BufferQueue, 应用端应该获取Producer进行内容的生产，SurfaceFlinger通过SurfaceFlingerConsumer进行aquire_buffer进行buffer的获取. 
+       从SurfaceFlinger的代码中可以看出，最多支持MAX_LAYERS(4096)个Layer
+    2. 在layer中，有自己的
+       State mCurrentState;
+       State mDrawingState;
+       这两个状态需要区分和surfaceFlinger里面的mCurrentState和mDrawingState， SurfaceFlinger的State和Layer的State都是自己内部定义的State， SurfaceFlinger的State， 这个地方同样是为了保存Layer的一些信息避免异步修改引起的问题，而使用两个状态来维护，设置的时候首先会修改mCurrentState的值，然后在进行Layer更新的时候同步到mDrawingState中.
+       SurfaceFlinger中维护Displayer State的对象
+       struct State {
+          LayerVector layersSortedByZ;
+          DefaultKeyedVector< wp<IBinder>, DisplayDeviceState> displays;
+       };
+       用于表示Z序的排列和当前display的状态的，实际上也就是表示display的状态的包括Z序，也是display要显示的Z序。
+       而Layer的State是指的Layer自己的状态
+       struct State {
+            Geometry active;    //当前Layer的几何图形, 包括width, height, crop剪切域
+            Geometry requested;
+            uint32_t z;         // 当前Layer的Z序
+            uint32_t layerStack; //所在的layerStack， 这个要与Display的LayerStack匹配才可以显示
+            uint8_t alpha;      // Layer的透明度
+            uint8_t flags;      // layerFlags: ISurfaceComposerClient::eFXSurfaceNormal, ISurfaceComposerClient::eHidden, ISurfaceComposerClient::eOpaque
+            uint8_t reserved[2];
+            int32_t sequence; // changes when visible regions can change
+            Transform transform;  // 显示的角度，比如旋转90度
+            // the transparentRegion hint is a bit special, it's latched only
+            // when we receive a buffer -- this is because it's "content"
+            // dependent.
+            Region activeTransparentRegion;
+            Region requestedTransparentRegion;
+      };      
+    
+    3.  Layer的内容更新后如何更新到SurfaceFlinger呢？
+        首先，Layer的APP端会拿到BufferQueue的Producer端，SurfaceFlinger会持有BufferQueue的Consumer端，SurfaceFlinger中在Layer初始化时候Consumer会设置BufferQueueProducer回调， 当Layer内容完成后，也就是一帧数据的完成之后，将绘制好的数据通过queue_buffer推送到BufferQueue, BufferQueue会将这个消息通过Consumer设置的回调通知到SurfaceFlingerConsumer端， 然后Consumer端是在SurfaceFlinger中的，然后触发SurfaceFlinger的相关操作。
+        整个过程中我们看到比较重要的几点，一个是handlePageFlip中的layer->latchBuffer, 将应用端的数据aquire过来。另外一个是setUpHWComposer->HWComposer::prepare->layer->setPerFrameData->(HWCLayer)layer.setBuffer, 这个是将latchBuffer的数据给到了hardware的hwc, 以便hwc进行真正的compose. 第三个是显示，也就是postFrameBuffer->HWComposer::commit->hwc_set进行真正的帧的显示。下面是触发流程。
+    Layer.onFirstRef
+        |—> mSurfaceFlingerConsumer->setContentsChangedListener(this);
+            |—> SurfaceFlingerConsumer::setFrameAvailableListener
+                |—> mFrameAvailableListener = listener;
+    
+    SurfaceFlingerConsumer::SurfaceFlingerConsumer
+        |—> GLConsumer::GLConsumer
+            |—> ConsumerBase::ConsumerBase
+                |—> wp<ConsumerListener> listener = static_cast<ConsumerListener*>(this);
+                |—> sp<IConsumerListener> proxy = new BufferQueue::ProxyConsumerListener(listener);
+                |—> status_t err = mConsumer->consumerConnect(proxy, controlledByApp);
+                    |—> BufferQueueConsumer::consumerConnect
+                        |—> BufferQueueConsumer::connect —> mCore->mConsumerListener = consumerListener;
+    
+    当内容完成后，也就是一帧数据的完成之后，将绘制好的数据通过queue_buffer推送到BufferQueue， BufferQueue会回调Consumer设置的callback，回调到SurfaceFlinger的SurfaceFlingerConsumer.onFrameAvailable方法。
+    BufferQueueProducer::queueBuffer
+        |—> frameAvailableListener = mCore->mConsumerListener;
+        |—> frameAvailableListener->onFrameAvailable(item);
+            |—> ConsumerBase::onFrameAvailable
+              |—> mFrameAvailableListener.onFrameAvailable
+                  |—> Layer::onFrameAvailable
+                     |—> SurfaceFlinger.signalLayerUpdate    // 触发SurfaceFlinger的混合更新
+                         |—> mEventQueue.invalidate()        // 触发视图无效操作
+                             |—> mEvents->requestNextVsync() // 请求VSYNC,当VSYNC到来的时候进行重绘
+                                 |—> mEventThread->requestNextVsync
+                                     |—> connection->count = 0;
+                                     |—> mCondition.broadcast();
+    
+    4. 当vsync事件开始的时候，开始进行进行vsync事件的分发，详细见 1.2 VSYNC
+       当VSYNC事件正式分发到SurfaceFlinger的时候，开始下面的流程，流程如下:
+    SurfaceFlinger.onMessageReceived
+      |—> MessageQueue::INVALIDATE:
+        |—> handleMessageTransaction()    // 处理Display的一下显示转变， 比如设置投影，改变Display的大小， 设置LayerStack等信息处理。
+        |—> handleMessageInvalidate()     // 处理Layer的变化，包括大小改变，内容更新...
+        |   |—> handlePageFlip
+        |       |—>  layer->latchBuffer
+        |       |   |—> mSurfaceFlingerConsumer->updateTexImage
+        |       |   |—> mActiveBuffer = mSurfaceFlingerConsumer->getCurrentBuffer(); // 从BufferQueue也就是Producer端获取更新好的graphicBuffer(mActiveBuffer)
+        |       |—> signalLayerUpdate     /*关于这个地方是否还会进行更新需要根据时间戳来确定，根据VSYNC的时间戳和App绘制出来的时间戳来确实是否有些帧要到下次VSYNC的时候绘制*/
+        |           |—> mEventQueue.invalidate();
+        |               |—> mEvents->requestNextVsync()
+        |                    |—> mEventThread->requestNextVsync
+        |                        |—> connection->count = 0;
+        |                        |—> mCondition.broadcast();
+        |—> signalRefresh();
+            |—> mEventQueue.refresh();
+                |—> mHandler->dispatchRefresh();
+                   |—> mQueue.mLooper->sendMessage(this, Message(MessageQueue::REFRESH));
+                       |—> MessageQueue::Handler::handleMessage   // Looper线程
+                           |—> mQueue.mFlinger->onMessageReceived(message.what);
+                               |—> SurfaceFlinger::onMessageReceived
+                                   |—> handleMessageRefresh();
+
+    SurfaceFlinger.onMessageReceived
+       |—> handleMessageRefresh
+         |—> preComposition
+         |—> rebuildLayerStacks
+             |—> computeVisibleRegions
+                 // 遍历所有的layer，从最前面的layer开始，分别计算下面三个区域， 并将其设置到layer的对应变量中
+                 // 1. 计算每个layer的可视区域，layer的可视区域主要是减去覆盖在layer上面的不透明的layer区域， 这个不透明区域并不精确，只会判断整个layer是否是不可视的，没有针对layer的具体不透明区域进行操作。
+                 // 2. 计算每个layer的被覆盖的区域，可能是透明的，也可能是不透明的。
+                 // 3. 计算整个display需要重新绘制的dirty区域
+                 // 4. 计算每个Layer的可见的非透明区域，也就是需要绘制的区域。
+             |—> hw->setVisibleLayersSortedByZ(layersSortedByZ);
+                 // 将相关信息设置到DisplayDeivce中
+             |—> hw->undefinedRegion.set(bounds);
+             |—> hw->undefinedRegion.subtractSelf(tr.transform(opaqueRegion));
+             |—> hw->dirtyRegion.orSelf(dirtyRegion);
+         |—> setUpHWComposer
+              |—> HWComposer::createWorkList <== hwc structures are allocated
+                  // 1. 根据layer的数量，在hwc里面申请layer.size + 1个大小的hwc_layer_1_t, 最后一个用于存放在OpenGL里面混合好的Frame的内容， 也就是framebufferTarget
+                  // 2. 关于framebufferTarget
+                  //    目前surfaceflinger中进行compose的时候会使用openGLES和HWC(copeblit)两种方式并存的方式进行混合，可能会有一部分layer由openGLES来进行compose， 一部分layer用HWC进行compose，
+                  //    但是最终的数据还是要混合到一个BUFFER上进行显示，那么surfaceflinger会先进行opengles的compose, opengles compose完成后，将混合好的内容作为一个layer设置到framebufferTarget上，
+                  //    framebufferTarget也就代表了使用openGLES进行混合好的数据存放的地方，然后再调用hwc->set进行真正的混合并显示，最终显示的buffer并不会到userspace来了，会直接从kernel的MDP或者cope_blit里面
+                  //    surfaceFlinger调用ioctl(fbFd, MSMFB_DISPLAY_COMMIT, &commit_info)进行推送显示。
+              |—> Layer::setGeometry()
+                  // 将layer的相关信息设置到HWC的hwc_layer_1_t中， 比如，如果layer是不透明的，需要设置blending方式为增加alpha位。
+                  // HWC_SKIP_LAYER = 0x00000001, setSkip,这个是表示是否禁止HAL处理这个Layer,如果禁止HAL处理这个Layer，也就代表了SurfaceFlinger会用OpenGl等其他方式处理这个Layer
+                  // layer.setCrop(computeCrop(hw)); computeCrop是根据layer的内容区域为坐标，转换激活的区域，也就是需要显示的区域的坐标到内容坐标系之后再 裁剪出需要显示的区域
+                  // 比如 内容区域的Rect是(200,200, 400, 400), 激活的区域是(100,100, 500,500), 那么应该显示的剪切域是(250, 250, 450, 450), 也就是将(100,100,500,500)整个映射到内容区域RECT区域，然后显示。
+              |—>  Layer::setPerFrameData  // set per frame data
+                  |— layer.setBuffer(mActiveBuffer);  // 将mActiveBuffer设置到hwc_layer_1_t的handle字段，也就是实际内容的字段。
+              |—  HWComposer::prepare
+              |    |—> layer->setPerFrameData(hw, *cur);
+              |      |—> (HWCLayer)layer.setBuffer(mActiveBuffer);
+              |        |—> hwc_layer_1_t(layer)->handle = mActiveBuffer.buffer_handle
+                   |—> hwc prepare // 整理hw_layer_t里面的layer的数据，打开并重置overlay(QCOM MDP), copyBlit等硬件设备， 同时会改变l.compositionType的值，如果适合使用copy_blit或者加速硬件会将这个值置为HWC_OVERLAY
+         |—> doComposition
+              |---- skip composition on external display if condition meets
+              |—> doDisplayComposition
+              |    |—> doComposeSurfaces
+              |     |—> layer->draw->onDraw
+              |     |—> DisplayDevice::swapBuffers
+              |          |—> eglSwapBuffers  // eglSwapBuffers的时候，会将绘制好的帧进行swap出来，FramebufferSurface会被调用onFrameAvailable
+              |          |—> FramebufferSurface::onFrameAvailable()
+              |             |—> mHwc.fbPost
+              |                |—> setFramebufferTarget   将openGLES compose好的数据buffer设置到hwc上面
+              |          |—> FramebufferSurface::advanceFrame
+              |—> DisplayDevice::flip(…)     <== just update statistics count
+              |--> Call DisplayDevice::compositionComplete(), notify each display
+                   |--> DisplaySurface::compositionComplete()
+                        |--> FramebufferSurface::compositionComplete()
+                             |--> HWComposer::fbCompositionComplete()
+                                  |--> NoOP if HWC >= 1.1
+                                  |--> used only in framebuffer device case.
+              |—> postFrameBuffer
+                   |—> HWComposer::commit
+                        |—> hwc set // 进行真正的overlay或者copyBlit混合， 包括openglES混合好的部分layer的数据，然后通过framebuffer显示， overlay好的数据并不再回到上层，直接通过ioctl(fbFd, MSMFB_DISPLAY_COMMIT, &commit_info)进行显示。
+                        |—> update retireFenceFd of hwc_display_contents_1
+                   |—> DisplayDevice::onSwapBuffersCompleted
+                        |—> FramebufferSurface::onFrameComitted
+                   |—> Layer::onLayerDisplayed
+                   |—   update some statistics
+         |—> postComposition 
+
+    5.  handleTransaction过程
+        handleMessageTransaction
+            |—> handleTransaction
+                |—> handleTransactionLocked
+                    1. 如果有eTraversalNeeded, 这个一般是有新增加layer, 删除layer的时候会需要重新遍历所有的layer, 遍历所有的mCurrentState.layersSortedByZ， 如果标志被设置layer->getTransactionFlags(eTransactionNeeded)，执行layer->doTransaction(0);
+                    2. 如果有eDisplayTransactionNeeded需要, 这个是当有对Display的修改的时候，比如增加/删除displayDevice的时候，修改Display的大小，显示区域等相关Display属性的内容的时候被触发。
+                       (1). 移除已经删除的Display从mDrawingState
+                       (2). 处理存在的Display的修改， 包括display的layerStack, orientation, viewport, frame, width, height
+                       (3). 处理新增的显示设备，并建立对应的DisplayDevice
+                    3. 处理所有的layer， .....补充、
+                    
+                    |—> commitTransaction();
+                    |—> updateCursorAsync();  // 更新光标层
+                |—> invalidateHwcGeometry
+
+
+
+    Recap of the draw-a-frame flow
+    SurfaceFlinger::setUpHWComposer
+      beginFrame
+      hwc prepare
+      prepareFrame
+    DisplayDevice::swapBuffers
+      eglSwapBuffer
+      advanceFrame
+    DisplayDevice::onSwapBuffers
+      hwc set
+      onFrameComitted
+
+2.  图形内存相关
+    GraphicBuffer(Surface(ANativeWindow(EGLNativeWindowType)), BufferQueue, GraphicBufferProducer, GraphicBufferConsumer, GraphicBufferAlloc, GraphicBufferAllocator, GraphicBuffer(android_native_buffer_t))
+
+2.1  Gralloc (graphic alloc)
+    gralloc模块有分为三个比较重要的模块，一个是framebuffer.cpp、gralloc.cpp和mapper.cpp, framebuffer主要是管理linux kernel的framebuffer的显存使用的，gralloc主要申请GraphicBuffer共享内存， 包括framebuffer的内存的申请，通常我们申请framebuffer内存的时候，需要通过USAGE指定GRALLOC_USAGE_HW_FB。mapper用户将buffer_handle映射为具体的内存。因此我们可以通过GRALLOC_HARDWARE_MODULE_ID打开两个hal device, 分别是GRALLOC_HARDWARE_GPU0和GRALLOC_HARDWARE_FB0， 分别对应这gralloc和framebuffer.
+    gralloc的module里面有一些非常重要的扩展方法，定义在gralloc_module_t(gralloc.h)里面，
+    我们通过
+    hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &module);
+    可以获取到gralloc_module_t, 这个是标准的hal module的获取方法，具体的是在hardware/gralloc.cpp的struct private_module_t HAL_MODULE_INFO_SYM中指定的。
+    gralloc_module_t里面有两个非常重要的方法，是lock和unlock，主要是用户将拿到的buffer_handle_t抓换成内存地址使用的, 这一部分的主要在mapper中实现。
+E.g.:
+    void *bits = NULL;
+    status_t res = OK;
+    gralloc_module_t *grallocModule;
+    hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &((hw_module_t *)grallocModule));
+    res = grmodule->lock(grallocModule, (buffer_handle_t)buffer_handle, GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_NEVER, 0, 0, width, height, &bits);
+    res = grallocModule->unlock(grmodule, (buffer_handle_t)nBufferHandle);
+
+2.1.1 framebuffer
+    framebuffer_device_t的设备在HWC_DEVICE_API_VERSION_1_1之后的版本中不再使用了已经，在代码中可以看出，如果HWC的版本高于HWC_DEVICE_API_VERSION_1_1，会将framebuffer close掉。
+    主要的方法和数据结构都在hardware/fb.h
+    所以，我们打开framebuffer可以通过fb.h中的framebuffer_open
+    static inline int framebuffer_open(const struct hw_module_t* module,
+            struct framebuffer_device_t** device) {
+        return module->methods->open(module,
+                GRALLOC_HARDWARE_FB0, (struct hw_device_t**)device);
+    }
+
+    关于framebuffer_device_t， 这个class主要是描述了framebuffer的相关操作，应该算是linux kernel中framebuffer设备的属性和方法的封装。比如post方法，对应kernel的FBIOPUT_VSCREENINFO/FBPAN_DISPLAY调用，这些属性和方法的赋值主要是通过framebuffer的ioctl通过kernel获取的， 详细信息可以参考mapFrameBufferLocked。
+    比较重要的数据结构是struct fb_fix_screeninfo finfo(FBIOGET_FSCREENINFO), struct fb_var_screeninfo info;(FBIOGET_VSCREENINFO)。
+    fb_var_screeninfo: 显卡的显示属性, 如屏幕分辨率、每个像素点的比特数, 用户可修改
+    fb_fix_screeninfo: 显卡的硬件属性, 用户不可修改, 驱动程序初始化时设置
+    值得注意的参数有xres、yres和xres_virtual、yres_virtual
+    xres 和 yres定义在显示屏上真实显示的分辨率, 而xres_virtual和yres_virtual是虚拟分辨率, 它们定义的是在显存中包含的分辨率
+    比如yres是400, 而yres_virtual是800. 这就意味着在显存中存储着800行显示行, 但是每次只能显示400行
+    显示哪400行则通过成员变量yoffset来指定
+        - 当yoffset＝0, 从显存0行开始显示400行
+        - 当yoffset＝30, 从显存31行开始显示400行
+    该特性通常可用于双缓冲(fb_pan_display)、平滑地滚动页面等， 这个功能在许多情形下非常方便实用。它可以用来做双缓冲。双缓冲就是你的程序分配了可以填充两个屏幕的内存。将offset设为0，将显示前400行（假设是标准的vga），同时可以秘密的在400行到799行构建另一个屏幕，当构建结束时，将yoffset设为400，新的屏幕将立刻显示出来。现在将开始在第一块内存区中构建下一个屏幕的数据，如此继续。这在动画中十分有用。 另外一个应用就是用来平滑的滚动整个屏幕。就像在前面屏幕中一样，在内存分配800行的空间。每隔10毫秒设定一个定时器（timer），将offset设为1或是比上次更多，瞧，你看到了一个平滑滚动的屏幕。确保你的信号（signal）不要因为最佳输出的原因被信号处理程序阻塞。
+    所以，yres_virtual是支持双缓冲还是支持平滑移动，可以通过xpanstep和ypanstep来确定，如果ypanStep == 400, 那么，只能作为双缓冲使用，如果ypanstep = 1，那么既可以作为双缓冲也可以平滑滚动，但是平滑滚动应该只能滚动到yoffset=400的情况下。因此，在Android的framebuffer中，这种功能叫做PAGE_FLIP
+    line_length, 含义是一行的 size, 以字节数表示, 即屏幕的宽度(xres_virtual * bits_per_pixel / 8)
+    最后我们需要将framebuffer映射出来进行屏幕的操作。
+    void* vaddr = mmap(0, fbSize, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+    if (vaddr == MAP_FAILED) {
+        ALOGE("Error mapping the framebuffer (%s)", strerror(errno));
+        return -errno;
+    }
+    在framebuffer_device_t中有一个比较重要的方法，就是post,用于将填充好的buffer推到屏幕上进行显示。
+    
+    framebuffer的申请和释放，通常我们使用Framebuffer内存的时候，需要通过gralloc进行内存的映射，在Android中专门有一个类对framebuffer进行管理，FramebufferNativeWindow， 所以，framebuffer的使用方式:
+E.g.:
+    alloc_device_t* grDev;
+    err = gralloc_open(module, &grDev);
+    for (i = 0; i < mNumBuffers; i++) {
+        err = grDev->alloc(grDev,
+	        static_cast<int>(fbDev->width),
+	        static_cast<int>(fbDev->height),
+	        fbDev->format, GRALLOC_USAGE_HW_FB,
+	        &buffers[i]->handle, &buffers[i]->stride);
+	}
+
+    当需要显示的时候
+    int FramebufferNativeWindow::queueBuffer(ANativeWindow* window,
+            ANativeWindowBuffer* buffer, int fenceFd)
+    {
+        ...
+        int res = fb->post(fb, handle);
+        self->front = static_cast<NativeBuffer*>(buffer);
+        self->mNumFreeBuffers++;
+        ...
+    }
+
+2.1.2 gralloc
+    主要的方法和数据结构都在hardware/gralloc.h
+    相对于fb.h, gralloc.h中也有gralloc的标准打开方法
+    static inline int gralloc_open(const struct hw_module_t* module, 
+        struct alloc_device_t** device) {
+        return module->methods->open(module, 
+            GRALLOC_HARDWARE_GPU0, (struct hw_device_t**)device);
+    }
+    gralloc对应的数据结构是alloc_device_t， 里面的重要方法是
+    int (*alloc)(struct alloc_device_t* dev, int w, int h, int format, int usage, buffer_handle_t* handle, int* stride);
+    int (*free)(struct alloc_device_t* dev, buffer_handle_t handle);
+    关于usage, 在gralloc.h中有定义
+    enum {
+        /* buffer is never read in software */
+        GRALLOC_USAGE_SW_READ_NEVER         = 0x00000000,
+        /* buffer is rarely read in software */
+        GRALLOC_USAGE_SW_READ_RARELY        = 0x00000002,
+        /* buffer is often read in software */
+        GRALLOC_USAGE_SW_READ_OFTEN         = 0x00000003,
+        /* mask for the software read values */
+        ...
+    };
+
+    format主要是在system/graphic.h中定义
+    enum {
+        /*
+         * "linear" color pixel formats:
+         *
+         * When used with ANativeWindow, the dataSpace field describes the color
+         * space of the buffer.
+         *
+         * The color space determines, for example, if the formats are linear or
+         * gamma-corrected; or whether any special operations are performed when
+         * reading or writing into a buffer in one of these formats.
+         */
+        HAL_PIXEL_FORMAT_RGBA_8888          = 1,
+        HAL_PIXEL_FORMAT_RGBX_8888          = 2,
+        HAL_PIXEL_FORMAT_RGB_888            = 3,
+        HAL_PIXEL_FORMAT_RGB_565            = 4,
+        HAL_PIXEL_FORMAT_BGRA_8888          = 5,
+        ...
+    };
+    同时非标准的内容会定义在gralloc_priv.h中，qcom在这个问题中自定了CCD的相关format.
+    非framebuffer的共享内存的申请通过alloc_device_t的alloc方法进行内存的申请，gralloc.cpp中有具体的实现，最终申请是通过Android的android shared memory进行申请的。Android里面所有的graphic buffer申请都是通过一个GraphicBufferAllocator进行管理，GraphicBufferAllocator里面主要是封装了alloc_device_t。
+E.g.:
+    alloc_device_t  *mAllocDev;
+    hw_module_t const* module;
+    int err = hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &module);
+    if (err == 0) {
+        gralloc_open(module, &mAllocDev);
+    }
+    err = mAllocDev->alloc(mAllocDev, static_cast<int>(width), static_cast<int>(height), format, static_cast<int>(usage), handle, &outStride);
+
+2.1.3
+    Surface(ANativeWindow(EGLNativeWindowType)), BufferQueue, GraphicBufferProducer, GraphicBufferConsumer, GraphicBufferAlloc, GraphicBufferAllocator, GraphicBuffer(android_native_buffer_t).
+    这几个类的构成了android的图形绘制的原理.
+    他们的调用过程是OpenGLES->ANativeWindow(Surface)->GraphicBufferProducer->BufferQueue->GraphicBufferAlloc->GraphicBufferAllocator->gralloc(alloc_device-t)->alloc, 之后由GraphicBufferAlloc返回一个GraphicBuffer给OpenGLES使用。
+    Surface是对GraphicBuffer的具体封装，在上层，GraphicBuffer不再可见，也不再使用，都是通过Surface来具体的操作。
+    同时，Surface也可以传递给OpenGLes使用，因为Surface继承了EGLNativeWindowType, 也就是window, openGLES需要EGLNativeWindowType进行window的具体操作。
+    struct ANativeWindow， 定义在system/window.h中,这个是窗口的基础，openGLES使用这个window来进行window的操作，所以Surface继承了ANativeWindow
+    struct ANativeWindow {
+        ...
+        int     (*query)(const struct ANativeWindow* window,
+                int what, int* value);
+        int     (*perform)(struct ANativeWindow* window,
+                int operation, ... );
+        int     (*dequeueBuffer)(struct ANativeWindow* window,
+                struct ANativeWindowBuffer** buffer, int* fenceFd);
+        int     (*queueBuffer)(struct ANativeWindow* window,
+                struct ANativeWindowBuffer* buffer, int fenceFd);
+        ...
+    }
+    在Surface中实现了这些函数指针，所以，openGLES操作Window的时候，可以调用到Surface中的实现。在dequeueBuffer中，可以看到dequeue的是一个ANativeWindowBuffer， GraphicBuffer继承了ANativeWindowBuffer,因此，会返回GraphicBuffer.
+    那么Surface中申请内存是如何申请呢! 在Surface创建的时候，需要传入GraphicBufferProducer, 也就是Surface算是一个内容生产者, 所以，需要Producer的指针， 可以通过Producer进行dequeueBuffer和queueBuffer.
+    那么GraphicBufferProducer, GraphicBufferConsumer他们操作同一个BufferQueue, 只不过他们两个对外提供的接口不同，BufferQueue是对于GraphicBufferAlloc, GraphicBufferAllocator的封装，BufferQueue管理具体的GraphicBuffer, 通过GraphicBufferAlloc进行内存的申请和释放。
+    同时说明GraphicBufferProductor和GraphicBufferConsumer都是Binder的接口，都可以跨进程调用。
+    基于gralloc的Android封装的模块对于surfaceFlinger提供接口, 上面已有介绍
+    class GraphicBufferAlloc : public BnGraphicBufferAlloc  //通过surfaceflinger创建的一个graphic Buffer分配器，所有的graphicBuffer都需要经过他进行分配，其内部通过GraphicBufferAllocator--> alloc_device_t.alloc进行真正的内存分配。
+   GraphicBufferAlloc.createGraphicBuffer()  //通过GraphicBufferAlloc申请一块内存
+class GraphicBuffer
+    : public ANativeObjectBase< ANativeWindowBuffer, GraphicBuffer, RefBase >,
+      public Flattenable<GraphicBuffer>
+    Android上层使用的图形Buffer主要是通过GraphicBuffer进行操作， 其继承了Flattenable和ANativeWindowBuffer两个重要的数据结果，Flattenable主要是为了进程间传递使用的，ANativeWindowBuffer(window.h)主要用于底层window的处理, 记录了从gralloc中申请的内存的基本重要的内容。
+    typedef struct ANativeWindowBuffer
+    {
+        ...
+        struct android_native_base_t common;
+
+        int width;
+        int height;
+        int stride;
+        int format;
+        int usage;
+
+        void* reserved[2];
+
+        buffer_handle_t handle;
+
+        void* reserved_proc[8];
+        ...
+    } ANativeWindowBuffer_t;
+   
+2.1.3.1 BufferQueue
+    BufferQueue: 共享内存队列, surface内存的申请和释放。BufferQueue是一个内存块的集合，里面可以管理多个GraphicBuffer.我们可以设置这个BufferQueue中GraphicBuffer的数量。BufferQueue中GraphicBuffer的申请是通过GraphicBufferAlloc进行的。GraphicBufferAlloc可以通过surfaceFlinger来获取, 比如
+    sp<ISurfaceComposer> composer(ComposerService::getComposerService());
+    mGraphicBufferAlloc = composer->createGraphicBufferAlloc();
+所以，GraphicBufferAlloc也是一个Binder对象，我们可以通过Binder来调用他来通过SurfaceFlinger来申请内存。IGraphicBufferAlloc。
+当我们通过GraphiBufferAlloc来申请GraphicBuffer时，调用createGraphicBuffer来申请。同时GraphicBuffer也必须是可以进行进程间传递的，否则client端申请了就无法使用这块buffer了。
+GraphicBuffer并没有使用Binder的方式来使用，他是使用Flattenable这种方式来进行进程传递的，这种方式类是Parcelable的方式。也就是对里面的所有的值进行序列化,所以GraphicBuffer必须继承自Flattenable类，然后实现flatten和unflatten方法来进行扁平化和构造对象。
+   GraphicBuffer进行扁平化的时候最关键的地方就是共享内存的传输，这个利用Binder就可以实现。
+
+   同时BufferQueue这个类继承自BnGraphicBufferProducer和BnGraphicBufferConsumer，这两个都有自己的Binder，也就是我们可以获取这个Binder，然后用这个Binder来调用BnGraphicBufferProducer或者BnGraphicBufferConsumer里面的接口，如果我们把这个Binder给IGraphicBufferProducer,那么我们可以作为生产者来调用生产内容，如果我们把这个Binder给IGraphicConsumer，那么我们可以作为消费者来消费内容。
+   当我们作为生产者来生产内容的时候，我们通过dequeueBuffer来获取一个空的GraphicBuffer，然后填充内容后，queueBuffer给到BufferQueue
+   当我们作为消费这来消费内容的时候，我们通过acquireBuffer来获取一个有内容的GraphicBuffer,然后把内容按照我们的逻辑处理后，releaseBuffer这个buffer给到BufferQueue.
+   同时特别注意，这两个使用都可以通过Binder进行使用，我们可以通过参数来传递这些Binder.
+   对于BufferQueue只是对于Buffer的封装，并且提供接口给producer和consumer使用，同时Android提供ConsumerBase和Surface对这些内存进行管理操作。
+   Surface     : 用于管理和使用Producer, 也就是window
+   ConsumerBase: 主要管理Consumer, ConsumeBase与Consumer建立关联，需要通过mConsumer->consumerConnect(proxy, controlledByApp);进行，之后，ConsumerBase就可以收到来自于Producer的onFrameAvailable，onFrameReplaced等内存事件了。
+
+2.1.3.2. 关于GraphicBuffer，这也是一个非常重要的类
+   首先就是我们上面提到的共享内存的传递。另外一个问题是内存的申请，当创建一个GraphicBuffer的时候，我们要进行内存的事情，并且这个地方必须是共享内存，因为这个需要传递给另外的进程使用。对于graphicBuffer，Android单独定了GraphicBufferMapper和GraphicBufferAllocator，从我个人的理解上来讲，这两个类完全可以合并成一个类来使用，目前不明白Android将其分开的目的, 普通的共享内存可能还是不能满足需要，这块内存可能需要交给GPU，DMA，或者blit等硬件使用，所以需要按照平台的设计来分配内存，因为这些硬件都需要访问物理内存，需要连续的物理内存。
+
+2.1.3.3. GraphicBufferAllocator
+   图形内存的申请和释放都是通过这个接口, 申请图形内存需要通过平台的hardward模块gralloc来进行.
+   int err = hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &module);
+   ALOGE_IF(err, "FATAL: can't find the %s module", GRALLOC_HARDWARE_MODULE_ID);
+   if (err == 0) {
+       gralloc_open(module, &mAllocDev);
+   }
+
+2.1.3.4. GraphicBufferMapper
+   GraphicBufferMapper, 从字面意思来经用于内存的映射。通过这个设计可以看出在申请内存的时候并不会进行真正的映射，只是构造一个具体的buffer句柄，等到GraphicBufferMapper的时候才进行真正的内存map, 当然这个还要看具体的平台的实现，并不是绝对的。当时这两个类都是需要gralloc的支持，所以，实际上他们完全合并成一个类来进行gralloc的操作。其次，这个里面lock和unlock两个方法是非常重要的，lock的时候一个是会禁止底层显示模块再使用这块内存，另一个会返回这个地址的具体的vaddr来直接操作。unlock的时候会接触对这块内存的占用，那么会直接告诉显示去显示这块内存的内容
+   int err = hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &module);
+   锁定内存，即禁止底层显示模块再使用这块内存，并返回其地址
+   err = mAllocMod->lock(mAllocMod, handle, usage,bounds.left, bounds.top, bounds.width(), bounds.height(),vaddr);
+   vaddr就是返回的具体的这块内存的虚拟地址。
+   
+   
+3. HWC介绍
+    SurfaceFlinger的HWComposer负责surfaceFlinger中多个Layer的混合，并且把混合好的数据交给framebuffer进行显示。
+    hardware composer 硬件混合抽象层，介于SurfaceFlinger和HAL之间，具体到代码级别就是一个类，封装对于Hwcomposer HAL和Gralloc(framebuffer) HAL的使用。根据官方的介绍，Hwcomposer HAL有1.0、1.1、1.2、1.3等多个版本。这样设计的好处是可以充分发挥硬件性能，同时降低SurfaceFlinger和硬件平台的耦合度(方便移植)。framebuffer_device_t的设备在HWC_DEVICE_API_VERSION_1_1之后的版本中不再使用了已经，在代码中可以看出，如果HWC的版本高于HWC_DEVICE_API_VERSION_1_1，会将framebuffer close掉。
+
+3.1 
+    HWComposer里面包含的模块framebuffer_device_t(gralloc), hwc_composer_device_1(hardware hwcomposer), vsync(VSyncThread, EventHandler), HWCLayer, DisplayData, hwc_display_contents_1.
+
+3.1.1 struct hwc_display_contents_1*  mLists[MAX_HWC_DISPLAYS];
+    hwc_display_contents_1是指的hwc的每一个display需要显示的内容，里面包含的主要数据是
+    typedef struct hwc_display_contents_1 {
+        ...
+        union {
+            ...
+            struct {
+            ...
+                buffer_handle_t outbuf;
+            ...
+            };
+        };
+        ...
+        uint32_t flags;
+        size_t numHwLayers;
+        hwc_layer_1_t hwLayers[0];
+    } hwc_display_contents_1_t;
+    
+    outbuf表示这个display的layer绘制好的的内容应该输出到的buffer，比如virtual display会将其绘制到一个单独的surface中
+    numHwLayers指的是hwLayers[0]可变长数据的数量， 这两个值代表了需要混合显示的layer。
+    
+    hwc_layer_1_t 是在hwc_display_contents_1中的代表具体内容的数据结果，最终surfaceFlinger的layer需要对应到hwc_layer_1_t上。
+    typedef struct hwc_layer_1 {
+        ...
+        int32_t compositionType;
+        ...
+        union {
+            ...
+            struct {
+                union {
+                    buffer_handle_t handle;
+                    ...
+                };
+                ...
+                hwc_region_t surfaceDamage;
+            };
+            ...
+        };
+        ...
+    } hwc_layer_1_t;
+    
+    整个结构中handle是非常重要的，代表需要混合的buffer的地址，这个handle是需要通过gralloc申请的那个handle的地址。
+
+3.1.2
+    DisplayData, 是HWC中用于表示display信息的具体数据结构，对应到surfaceFlinger的display, 当前最多同时支持3个display,每个display的信息都会被保持在DisplayData中
+    struct DisplayData {
+        ...
+        Vector<DisplayConfig> configs;
+        size_t currentConfig;
+        uint32_t format;    // pixel format from FB hal, for pre-hwc-1.1
+        bool connected;
+        bool hasFbComp;
+        bool hasOvComp;
+        size_t capacity;
+        hwc_display_contents_1* list;
+        hwc_layer_1* framebufferTarget;
+        buffer_handle_t fbTargetHandle;
+        ...
+        buffer_handle_t outbufHandle;
+        ...
+    };
+    list也就代表了当前display要显示的内容，关于hwc_display_contents_1, 参见3.1.1
+    
+3.1.3
+    HWCLayer和HWCLayerVersion1
+    这两个类介于SurfaceFlinger的Layer和hw_layer_1_t， 用户同步SurfaceFlinger的Layer和hw_layer_1_t之间的数据和信息。
+    HWCLayerVersion1里面实现了比较重要的方法是setBuffer， 会将GraphicBuffer的buffer_handler传递给hw_layer_1_t的handler
+    virtual void setBuffer(const sp<GraphicBuffer>& buffer) {
+        {
+            ...
+            getLayer()->handle = buffer->handle;
+            ...
+        }
+    }
+
+3.1 HWComposer(hwc_composer_device_1, overlay)
+    HWComposer的module ID为HWC_HARDWARE_MODULE_ID， 包含一个HWC_HARDWARE_COMPOSER的设备， 详细可见hardware/hwcomposer.h, 包含的相关数据结构.
+    hwc_composer_device_1_t, hwc_procs_t, hwc_display_contents_1, hwc_layer_1_t, hwc_color_t,hwc_region_t,hwc_frect_t,hwc_rect_t.
+        
+    hwc_composer_device_1具体说明了Hardware的composer的具体可以使用的功能。
+    具体函数的使用方法和实例可以看hardware/libhardware/tests/hwc里面的实现。
+      
+    qcom 的hwcomposer里面包含overlay(mdp)
+    qcom mdss/mdp mobile display subsystem/ mobile display platform
+
+enum {
+    //需要处理事务
+    eTransactionNeeded        = 0x01,
+    //需要遍历
+    eTraversalNeeded          = 0x02,
+    //需要处理display的事务
+    eDisplayTransactionNeeded = 0x04,
+    eTransactionMask          = 0x07
+};
+
+
+二、  WMS, View等
+
+1. 介绍
+    drawable: Drawable是“可以绘制的东西”的一般抽象。 drawable与View不同的是drawable不会接受和处理用户事件以及用户交互上的内容，只有绘制。除了简单的绘图，Drawable提供了许多通用的机制，使客户端与正在绘制的内容进行交互。
+    paint:    涂料, 或者叫画笔，保存样式和颜色信息关于如何绘制几何图形，文字和bitmaps.
+    canvans:  画布：Canvas类保存“draw”调用。 要绘制一些东西，你需要4个基本组件：一个Bitmap来保存像素，一个Canvas来承载绘图调用（写入位图），一个绘图基元（例如Rect，Path，text，Bitmap）和一个paint描述绘图的颜色和样式）。
+    View:     表示用户界面组件的基本构建块。 view在屏幕上占据一个矩形区域，负责绘图和事件处理。 View是widgets的基类，用于创建交互式UI组件（按钮，文本字段等）。 ViewGroup类是layout的基类，它是保存其他视图（或其他ViewGroup）并定义其布局属性的不可见容器。
+    DecorView 是phoneWindow的一个子类，是一个FrameLayout, FrameLayout集成自ViewGroup，因此DecorView是一个FrameLayout的一个布局容器，可以对其设置背景，添加view等。
+    ViewRoot： 视图层次结构的顶部，在View和WindowManager之间实现所需的协议以及和InputManagerService之间的协议。 这大部分是WindowManagerGlobal的内部实现细节。其与view和viewGroup的并没有直接的关系，其内部包含了重要的DecorView和Choreographer, 并且实现了与windowmanagerService的交互。ViewRoot并不包含在Activity中，但是一个Activity对应了一个ViewRoot，ViewRoot hold在WindowManagerGlobal中， 所以ViewRoot虽然叫View，但是他更多的是与Window和Draw相关的功能，尤其是与windowmanagerService进行交互。
+    因此，每个Activity都会有自己的ViewRoot，每个ViewRoot都会有自己的Surface，因此，一个APP会创建多个Activity，也就存在多个Layer(SurfaceFlinger), 但是Choreographer每个进程只有一个。
+    ViewParent: 定义作为View的父类的类的功能, 这是当视图想要与其父对象交互时看到的API。这个API的主要作用是当View和ViewRootImpl交互的标准，比如当View需要请求底层重新绘制的时候就需要调用ViewParent的接口。
+    
+    Choreographer： 协调动画，输入和绘图的时序。从显示子系统接收定时脉冲（Vsync），然后渲染frame。 App通常使用动画框架或者View等更高层的API与Choreographer交互。
+
+    obtainStyledAttributes: 从AttributeSet或者主题中获取指定的styleable属性，比如:
+    final TypedArray a = context.obtainStyledAttributes( attrs, com.android.internal.R.styleable.View, defStyleAttr, defStyleRes);
+    attrs, 也就是从layout.xml中解析到的View具体的xml文件中获取 styleable.View 指定的属性值， 如果这个为null， 那么将会从Activity或者Application中指定的theme中获取styleable.View的属性值。
+　　　　
+　　　　mLayoutInflater.inflate(@LayoutRes int resource, @Nullable ViewGroup root)
+　　　　这个方法是将我们指定的xml描述的内容生成为一个指定的View或者ViewGroup，参数1就是指的xml, 第二个参数是root, 如果指定了root, 那么在将View生成好之后，如果root不为null，会将View加到root中去，并返回root, 如果root为null,返回生成的view.
+
+
+    WindowManager extends ViewManager: ViewManager主要是进行View的增加删除，管理Activity的View使用.
+    
+    ViewGroup.LayoutParams和WindowManager.LayoutParams：
+    WindowManager.LayoutParams集成自ViewGroup.LayoutParams，包含的信息更多, 在向WindowManager中添加DocorView的时候需要指定WindowManager.LayoutParams, 这个值最终会hold在DocorView的mLayoutParams, 因此，DocorView的mLayoutParams一定是WindowManager.LayoutParams, 但是非DocorView的mLayoutParams仅仅是ViewGroup.LayoutParams.
+    ViewGroup.LayoutParams是最终hold在View里面的mLayoutParams中，用来表示当前View所在父ViewGroup中的大小.
+    
+
+
+1.1  当进程启动完成后，会被AMS调用handleLaunchActivity正式进行UI的绘制等。
+    handleLaunchActivity
+      |—> performLaunchActivity
+          |—> component = new ComponentName(r.activityInfo.packageName,r.activityInfo.targetActivity);
+          |   activity = mInstrumentation.newActivity(cl, component.getClassName(), r.intent);
+          |    根据AndroidManifest中指定的Activity，取得要启动的Activity，并实例化Activity
+          |—> Application app = r.packageInfo.makeApplication(false, mInstrumentation);
+          |    |—> String appClass = mApplicationInfo.className;
+          |      app = mActivityThread.mInstrumentation.newApplication(cl, appClass, appContext);
+          |      根据AndroidManivest中指定的Application class， 实例化Application, 这个applicant默认是android.app.applicantion,
+          |      可以通过AndroidManifest<application android:name=".MyApplication"> 进行指定。
+          |—> activity.attach
+          |    |—> mWindow = new PhoneWindow(this); 创建属于这个Activity的Window， PhoneWindow中包含了DecorView
+          |—> mInstrumentation.callActivityOnCreate(activity, r.state);
+          |    |—> activity.performCreate(icicle);
+          |        |—> onCreate(icicle);
+          |          |—> setContentView ...
+          |             |—> getWindow().setContentView(view);  
+          |—> activity.performStart();
+          |    |—> mInstrumentation.callActivityOnStart(this);
+          |         |—>activity.onStart();
+      |—> handleResumeActivity(r.token, false, r.isForward, !r.activity.mFinished && !r.startsNotResumed);
+          |—> performResumeActivity
+              |—> activity.performResume();
+                  |—> mInstrumentation.callActivityOnResume(this);
+                      |—> activity.onResume();
+ 
+ 
+1.2  setContentView 的过程，　PhoneWindow是主要过程
+      Activity.setContentView --> PhoneWindow.setContentView()
+      |—>installDecor
+      | |—> generateDecor --> new DecorView(getContext(), -1);
+      |     // DocorView的实例化过程中，需要实例化FrameLayout --　> ViewGroup --> View
+      |     // 这三个构造方法需要用到三个styleable, 分别是:
+      |     // View的样式         com.android.internal.R.styleable.View
+      |     // ViewGroup的样式    com.android.internal.R.styleable.ViewGroup
+      |     // FrameLayout的样式  com.android.internal.R.styleable.FrameLayout
+      |     // 由于DocorView没有从xml传入属性，那么这些都会从主题获取
+      | |—> generateLayout(mDecor);
+      |     |—>  getWindowStyle();  
+                 // 从AndroidManifest.xml中Applicantion中指定的theme中获取主题指定的样式，主题中需要将com.android.internal.R.styleable.Window中定义的attrs进行设置
+                 // 从window中获取的属性值将会直接设置到PhoneWindow的Flag中，因此，想要改变window的样式，直接hook修改com.android.internal.R.styleable.Window就OK了
+      |     |—>  将主题中指定的feature以及设置的背景，文字样式等信息读取并设置到对应的模块中， 并根据主题中指定的feature，确定基础的layout, 基础的layout主要有
+      |          R.layout.screen_swipe_dismiss, R.layout.screen_title_icons,
+      |          R.layout.screen_progress,R.layout.screen_custom_title, R.layout.screen_action_bar,
+      |          R.layout.screen_title, R.layout.screen_simple_overlay_action_mode, R.layout.screen_simple;
+      |     |—>  doctor.addView()  // 将基础layout添加到DecorView中
+      |     |—>  在基础layout中，都会有com.android.internal.R.id.content;的FrameLayout, 将这个view找到，并hold到mContentParent.
+      |     |—>  完成DecorView的设置
+      |—> mContentParent.addView(view, params); 将view添加到mContentParent中
+     
+    
+    
+1.3  
+    创建RootView并与WindowManagerService建立关联，这个的过程一般是在handleResumeActivity中，不过过程跟makeVisible中是相同的
+    Activity.makeVisible 
+    |—> wm.addView(mDecor, getWindow().getAttributes()); //将Activity的顶层View(DocorView)加到WindowManager中
+    |   |—> mGlobal.addView(view, params, mDisplay, mParentWindow);
+    |       |—> root = new ViewRootImpl(view.getContext(), display);
+    |       |—> root.setView(view, wparams, panelParentView);
+    |           |—> mWindowSession.addToDisplay(mWindow, ...)      //将RootView与WindowManagerService建立关联，这里面主要的参数是W mWindow, WindowManagerService需要通过他对Activity 窗口进行管理，比如Z序，大小等。
+    |—> mDecor.setVisibility(View.VISIBLE);
+                
+  
+1.4  创建Surface的地方
+    VSYNC
+    |—>  mTraversalRunnable.run
+      |—> doTraversal()
+        |—> performTraversals
+          |—> relayoutWindow
+            |—>mWindowSession.relayout   // 下面整个过程是与windowmanagerService交互创建SurfaceControl，也就是向SurfaceFlinger创建Layer. 之后所有的view的ondraw方法都会通过canvas的方法都会draw到这个Surface上。
+              |—> wms.relayoutWindow
+                |—> createSurfaceControl // surfaceFlinger.client.createSurface, 真正创建surface的地方。
+ 
+
+
+1.5 ViewRoot和Input事件的处理
+    
+    1. ViewRoot不仅与WindowManagerService，SurfaceFlinger建立管理，并且与InputManagerService建立关联，负责接受InputManagerService的时间的分发并将InputEvent dispatch到具体的View, 与SurfaceFlinger接受Vsync事件的DisplayEventReceiver相似，InputFlinger也有自己的InputEventReceiver，两者的原理也是类似的。
+    2. InputManagerService事件的分发是需要知道当前FocusApplication的，最终事件会dispatch到具体的Applicantion的InputChannel上，也就是给对应的InputChannel的socket发送事件。setFocus的具体过程是在AMS->WMS->IMS->InputDispatcher     
+    3. 处理一个InputEvent的过程中，Focus的View总共会收到四个回调方法的调用, dispatchKeyEventPreIme， onKeyPreIme, dispatchKeyEvent, onKeyDown/onKeyUp.
+    WindowInputEventReceiver extends InputEventReceiver
+    Looper.loop()->mQueue.next();                           // 这个Looper是ActivityThread的线程，也就是UI线程
+    |—> InputEventReceiver.dispatchInputEvent
+       |—> WindowInputEventReceiver.onInputEvent()
+          |—> ViewRootImpl.enqueueInputEvent()
+             |—> doProcessInputEvents()
+                |—> deliverInputEvent()
+                    |—> stage = q.shouldSkipIme() ? mFirstPostImeInputStage : mFirstInputStage;  //根据是否需要处理输入法，选择event传递的路径
+                    |—> stage.deliver(q);
+                    |—> NativePreImeInputStage.onProcess();   // 这个状态是在IME处理之前交给如果有NativeAcitivity的应用使用的。
+                    |—> ViewPreImeInputStage.onProcess();     // 在给IME之前给View先进行处理，会调用到View.onKeyPreIme, 因此，Foucus的View会收到dispatchKeyEventPreIme和onKeyPreIme两个方法的回调。
+                    |   |—> mView.dispatchKeyEventPreIme() -> ViewGroup.dispatchKeyEventPreIme()
+                    |       |—> mFocused.dispatchKeyEventPreIme(event);
+                    |          |—> onKeyPreIme
+                    |—> ImeInputStage.onProcess();            // 将事件交给输入法进行处理，如果输入法返回true, 停止向下传递。
+                    |   |—> imm.dispatchInputEvent(event, q, this, mHandler);
+                    |—> EarlyPostImeInputStage.onProcess();
+                    |—> NativePostImeInputStage.onProcess();  // NativeAcitivity相关的事件处理。
+                    |—> ViewPostImeInputStage.onProcess();    // 真正进行View key事件的处理
+                    |   |—> mView.dispatchKeyEvent(event)
+                    |   |  |—> DoctorView.dispatchKeyEvent(event) -> ViewGroup.dispatchKeyEvent()
+                    |   |  |—> mFocused.dispatchKeyEvent(event)
+                    |   |      |—> View.dispatchKeyEvent(event)   // 这个地方focus的View会被回调到两次，一次是dispatchKeyEvent, 另一次是 onKeyDown和onKeyUp
+                    |   |          |—> (KeyEvent)event.dispath()
+                    |   |          |—> (View)receiver.onKeyDown/onKeyUp()
+                    |   |—> mView.dispatchPointerEvent          // 处理touch event
+                    |   |  |—> dispatchTouchEvent()
+                    |   |  |  |—> onTouchEvent
+                    |   |  |—> dispatchGenericMotionEvent
+                    |   |  |  |—> dispatchHoverEvent
+                    |   |—> processTrackballEvent               // 轨迹球相关的事件，没有用了，类似鼠标
+                    |   |  |—> dispatchTrackballEvent
+                    |   |    |—> onTrackballEvent
+                    |   |—> processGenericMotionEvent
+                    |—> SyntheticInputStage.onProcess()         // 综合性的设备事件处理， 如果上面的路径中都无法处理这个输入事件，则会到这个状态中来, 比如JOYSTICK(游戏手柄)等
+                    |—> ViewRootImpl.finishInputEvent
+                        |—> InputEventReceiver.finishInputEvent
+                            |—> nativeFinishInputEvent           // 整个事件处理完成
+                    
+
+    4. input的几种key事件
+       KeyEvent 这个比较正常，有DOWN/UP，就是一个按键按下，一般都是键盘事件。
+       MotionEvent: 这个比较复杂，代表的是触控事件，触控事件中有以下几种事件:
+           AMOTION_EVENT_ACTION_DOWN:  当屏幕有一个手指按下的时候触发，同时他携带了按下的时候的触发的那个坐标
+           AMOTION_EVENT_ACTION_UP  :  当屏幕有一个手指抬起的时候触发，这个事件携带了从按下到抬起中间所有经过的坐标
+           AMOTION_EVENT_ACTION_MOVE:  当一个手指按下并滑动的时候产生的事件，这个事件携带了从按下的点开始到当前点的所有坐标。
+           AMOTION_EVENT_ACTION_CANCEL: 当前的按下事件已经取消，这个事件中不会包含任何的点。
+           AMOTION_EVENT_ACTION_OUTSIDE：运动发生在UI元素的正常边界之外。 这不提供完整的手势，而只是移动/触摸的初始位置。
+           AMOTION_EVENT_ACTION_POINTER_DOWN: 有一个非主要的手指按下了, 也就是第二个手指按下了。
+           AMOTION_EVENT_ACTION_POINTER_UP：  一个非主要的手指抬起来了。
+           AMOTION_EVENT_ACTION_HOVER_MOVE：  鼠标事件的移动.
+           
+      关于MotionEvent的处理
+      (1).  AMOTION_EVENT_ACTION_DOWN/AMOTION_EVENT_ACTION_UP的处理
+            NativeInputEventReceiver.handleEvent
+            |—> consumeEvents
+            | |—> mInputConsumer.consume()
+            | | |—> mChannel->receiveMessage(&mMsg);
+            | | |—> mMsg.body.motion.action = AMOTION_EVENT_ACTION_DOWN
+            | | |—> *outEvent = motionEvent;
+            | |—> dispatchInputEvent() //  后续会进入到  3. 所述的流程中.
+      
+      (2). AMOTION_EVENT_ACTION_MOVE 的处理
+            NativeInputEventReceiver.handleEvent
+            |—> consumeEvents
+            | |—> mInputConsumer.consume()
+            |   |—> mChannel->receiveMessage(&mMsg);
+            |   |—> mMsg.body.motion.action = AMOTION_EVENT_ACTION_MOVE
+            |   |—> mBatches.push(); batch.samples.push(mMsg);    //  started batch event
+            |   |—> 循环直到mChannel->receiveMessage(&mMsg);返回WOULD_BLOCK
+            | |—> dispatchBatchedInputEventPending
+            |   |—> onBatchedInputEventPending
+            |     |—> scheduleConsumeBatchedInput
+            |       |—> mChoreographer.postCallback(Choreographer.CALLBACK_INPUT,mConsumedBatchedInputRunnable, null);   
+                        // 这个是调用到mChoreographer中并同步到VSYNC， 当VSYNC到来的时候，
+                        // 首先执行这个CALLBACK_INPUT的事件， 也就是ACTION_MOVE的事件一般都是与VSYNC同步执行的。
+                        // 同时这个scheduleConsumeBatchedInput在scheduleTraversals的时候，也就是请求重新绘制
+                        // 的时候也会被主动向Input请求，每次scheduleTraversals都会执行。
+  
+            MainLooper.loop
+            |—> ConsumeBatchedInputRunnable.run
+            |   |—> doConsumeBatchedInput
+            |     |—> mInputEventReceiver.consumeBatchedInputEvents
+            |        |—> nativeConsumeBatchedInputEvents
+            |          |—> consumeEvents
+            |          | |—> mInputConsumer.consume
+            |          |    |—> mChannel->receiveMessage(&mMsg);
+            |          |    |—> consumeSamples
+            |          |—> dispatchInputEvent    后续会进入到  3. 所述的流程中.
+    
+    
+
+2. VSYNC相关
+
+    java中对于vsync的使用，可以直接继承DisplayEventReceiver， 实现其onVsync方法。DisplayEventReceiver就是通过管道与SurfaceFlinger建立联系，负责请求vsync和接受vsync事件， 当我们需要vsync的时候，通过scheduleVsync方法向SurfaceFlinger请求vsync, 然后当vsync到来的时候，会回调onVsync方法在Choreographer中定义了FrameDisplayEventReceiver
+
+2.1 Choreographer
+    Choreographer 协调动画，输入和绘图的时序。从显示子系统接收定时脉冲（Vsync），然后渲染frame。 App通常使用动画框架或者View等更高层的API与Choreographer交互。通常使用的方法如下:
+      1. 要想在与显示帧渲染同步的时间基准上执行要处理的动画，请使用android.animation.ValueAnimator＃start。也就是利用Vsync同步执行你的动画。
+      2. 要想在下一个显示帧(Vsync)开始时调用一次的Runnable，请使用View＃postOnAnimation。
+      3. 要想在延迟delay时间长度后的下一个显示帧的开头调用一次的Runnable，请使用View＃postOnAnimationDelayed。
+      4. 要想在下一个显示帧的开始发生时调用一次View＃invalidate()方法，使用View＃postInvalidateOnAnimation()或View＃postInvalidateOnAnimation(int，int，int，int)。
+      5. 要确保视图的内容平滑滚动，并与显示帧渲染同步绘制，请勿执行任何操作。 这已经自动发生。 View＃onDraw将在适当的时间调用
+    如果应用程序在不同的线程中渲染，可能使用GL，或根本不使用动画框架或视图层次结构，并且希望确保它与显示适当同步，则使用Choreographer＃postFrameCallback .
+    每个Looper线程都有自己的Choreographer， 其他线程可以postCallback到Choreographer上执行，但是他将一直在Choreographer所属的Looper线程上执行。
+    
+    通常我们调用Choreographer的时候，主要是调用Choreographer的postCallback方法， 这个方法的作用是: 发送一个CallBack给Choreographer, 当下一个Vsync来的时候，执行这个CallBack, 也就是Runnable action.
+    public void postCallback(int callbackType, Runnable action, Object token)；
+    public void postCallbackDelayed(int callbackType, Runnable action, Object token, long delayMillis);
+    public void postFrameCallback(FrameCallback callback);
+    
+    TimeInterpolator 时间插值器， Interpolator是一个速度控制器，控制速度变化。这允许动画根据时间具有非线性运动，例如加速和减速。 
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
