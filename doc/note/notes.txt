@@ -216,3 +216,100 @@ typedef struct hw_module_methods_t {
    所有client段需要得到service的时候，会通过getService->BpBinder(serviceManager)->trasact->Binder Driver->ServiceManager(name)到service_manager的进程，然后ServiceManager会将这个进程对应的handle返回到kernel, Kernel会根据handle找到对应的BBinder，如果是在同一个进程，会返回BBINDER_TYPE_BINDER, 否则返回BINDER_TYPE_HANDLE, 当通过reply->readStrongBinder的时候，会转换成相应的BBinder或者新建一个BpBinder.
 
 
+
+2016.6.30
+    
+    关于Android Looper和Handler的使用的关系。(2015.12.16  10:27 这个应该说的是mediaplayerservice里面的looper和handler)
+
+    java层的Looper里面一个重要的内容是mQueue,也就是消息队列，当我们通过Handler发送消息是，都会被push到这个queue中。然后有Looper.loop()方法轮询mQueue队列，取出mQueue中的message, 执行message中的target(handler)的handleMessage方法。
+    首先我们要使用一个Looper需要先prepare, perpare的意思就是建立一个Looper，并将他放到当前线程的threadLocal中，这样这个线程只要使用Looper的时候，只要myLooper就可以得到当前线程的looper了，也就是说当前线程只能有一个looper。
+    然后线程必须阻塞在Looper.loop()方法才可以进行消息的分发。
+    Looper.prepare();
+    Looper.loop();
+    
+    每个handler必须有looper，因为需要将消息push到mQueue中， handler在构造的时候有几种构造方法，一种是传入一个looper,如果没有传入looper或者looper为null,那么直接looper.myLooper()来获取当前线程的looper;
+    handler.postMessage里面最终要的是最终push到mQueue之前要填充Message.target成员为this,也就是当前handler，这样，当looper进行queue分发的时候，可以直接调用handler.handMessage()方法。
+    所以Handler只是进行消息的分发，具体执行的方式是Msg自己的target的决定的。
+    
+    另外，这个Looper也可以从C/C++层增加fd进行事件监控
+    int rc = mLooper->addFd(mReceiver.getFd(), 0, Looper::EVENT_INPUT, this, NULL);
+    class LooperCallback : public virtual RefBase {
+        protected:
+            virtual ~LooperCallback() { }
+    }
+
+    public:
+        /**
+         * Handles a poll event for the given file descriptor.
+         * It is given the file descriptor it is associated with,
+         * a bitmask of the poll events that were triggered (typically EVENT_INPUT),
+         * and the data pointer that was originally supplied.
+         *
+         * Implementations should return 1 to continue receiving callbacks, or 0
+         * to have this file descriptor and callback unregistered from the looper.
+         */
+        virtual int handleEvent(int fd, int events, void* data) = 0;
+    };
+    
+    另外，Message中还有一个重要的特性是 Async属性，也就是可以将post的消息设置成为Async的，在Message中，如果不指定Async属性，默认都是sync的消息，这个Async和Sync的区别是什么呢，这个地方涉及到一个概念是SyncBarrier, 也就是同步屏障。什么是同步屏障呢，就是说，如果遇到这个屏障的消息，屏障消息之后的Sync消息都会被block住，不会执行。MessageQueue.next方法如果遇到屏障消息就会忽略后面的同步消息，不返回屏障之后的所有同步消息。但是Async的消息不会手影响，MessageQueue.next将会将Async的消息拿出来执行。
+    我们如何使用内存屏障呢，在framework中的ViewRoot.scheculeTravel中有一次使用，其他地方没有使用。意思是将队列中在当前时间之后执行的Message block住。
+    同步屏障的使用方法:
+    mTraversalBarrier = mHandler.getLooper().getQueue().postSyncBarrier();
+    mHandler.getLooper().getQueue().removeSyncBarrier(mTraversalBarrier);
+    ，
+    Async消息的使用方法
+    msg.setAsynchronous(true);
+
+
+
+2016.7.4
+
+    AsyncChannel
+    An asynchronous channel between two handlers
+    在两个handler之间的异步通道，两个handler可能在同一个进程或者不同的进程。
+    使用方法:
+ *<ol>
+ *   <li>Client calls AsyncChannel#connectSync or Asynchronously:</li>
+ *      <ol>For an asynchronous half connection client calls AsyncChannel#connect.</ol>
+ *          <li>Client receives CMD_CHANNEL_HALF_CONNECTED from AsyncChannel</li>
+ *      </ol>
+ *   <li><code>comm-loop:</code></li>
+ *   <li>Client calls AsyncChannel#sendMessage</li>
+ *   <li>Server processes messages and optionally replies using AsyncChannel#replyToMessage
+ *   <li>Loop to <code>comm-loop</code> until done</li>
+ *   <li>When done Client calls {@link AsyncChannel#disconnect}</li>
+ *   <li>Client/Server receives CMD_CHANNEL_DISCONNECTED from AsyncChannel</li>
+ *</ol>
+
+ *<ol>
+ *   <li>Client calls AsyncChannel#fullyConnectSync or Asynchronously:<li>
+ *      <ol>For an asynchronous full connection it calls AsyncChannel#connect</li>
+ *          <li>Client receives CMD_CHANNEL_HALF_CONNECTED from AsyncChannel</li>
+ *          <li>Client calls AsyncChannel#sendMessage(CMD_CHANNEL_FULL_CONNECTION)</li>
+ *      </ol>
+ *   <li>Server receives CMD_CHANNEL_FULL_CONNECTION</li>
+ *   <li>Server calls AsyncChannel#connected</li>
+ *   <li>Server sends AsyncChannel#sendMessage(CMD_CHANNEL_FULLY_CONNECTED)</li>
+ *   <li>Client receives CMD_CHANNEL_FULLY_CONNECTED</li>
+ *   <li><code>comm-loop:</code></li>
+ *   <li>Client/Server uses AsyncChannel#sendMessage/replyToMessage
+ *       to communicate and perform work</li>
+ *   <li>Loop to <code>comm-loop</code> until done</li>
+ *   <li>When done Client/Server calls {@link AsyncChannel#disconnect}</li>
+ *   <li>Client/Server receives CMD_CHANNEL_DISCONNECTED from AsyncChannel</li>
+ *</ol>
+
+    关于AsyncChannel的同步消息和异步消息:
+    AsyncChannel既可以发送同步消息，也可以发送异步消息，默认情况下sendMessage发送的就是异步消息，如果发送同步消息需要调用sendMessageSynchronously发送消息。
+    sendMessageSynchronously 消息原理：
+    在AsyncChannel内部有一个SyncMessenger静态内部类, SyncMessenger.sendMessageSynchronously首先会从stack中拿出一个SyncMessenger，如果stack中已经用完，重建一个SyncMessenger， SyncMessenger中包含自己的thread, looper, handler，已经用于进程间通信的Messager(handler), 因此，每个同步消息都会建立一个thread，并且会建立一个自己的Messager。
+    建立这些之后通过Binder将消息通过dstMessenger.send(msg)进行发送，并sm.mHandler.mLockObject.wait();等待消息返回。
+
+    对于halfConnect和fullConnect， halfConnect用于单向的消息发送，而fullConnect可用户双向的消息发送。
+
+
+
+
+
+
+

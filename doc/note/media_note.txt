@@ -82,8 +82,70 @@ framework/av/
    WifiDisplayAdapter会创建WifiDisplayController, WifiDisplayController会进行整个WifiP2p,Rtsp等整个控制过程。
    WifiDisplaySettings只会与WifiDisplayAdapter进行控制，交互，并且需要通过DisplayManagerService进行接口的调用。
 
-   WifiDisplayController会通过native创建RemoteDisplay实例，RmoteDisplay最终会在MediaPlayerService中创建，RemoteDisplay会建立WifiDisplaySource的对象，WifiDisplaySource会包括encoder, muxer,rtsp等一系列Wifidiaplay的管理。
-   并且WifiDisplaySource会创建surface，并将sureface handle传至WifidiaplayAdapter，然后createDisplay, 设置diaplay的surface
+   WifiDisplayController会通过native创建RemoteDisplay实例，RmoteDisplay最终会在MediaPlayerService中创建.
+   RemoteDisplay比较简单，其实就是WifiDisplaySource的wrapper类。
+   RemoteDisplay会建立WifiDisplaySource的对象，WifiDisplaySource会包括playbackSession(encoder, muxer), rtsp(NetworkSession)等一系列Wifidiaplay的管理。
+   RTSP部分的管理是由ANetworkSession实现管理。
+   Encoder和Muxer部分由PlaybackSession来管理实现。
+   同时SurfaceTexure也是由PlaybackSession在创建Encoder的时候创建，是Encoder的输入部分，也就是Productor.
+   输出部分的数据由PlaybackSession直接管理，通过MediaSender建立TsPacket，并通过RTP Sender发送到对端， RTP的建立由RTP sender通过ANetworkSession建立， 编码器编好的数据调用MediaSender的queueAccessUnit方法即可。
+   并且WifiDisplaySource会通过PlaybackSession获取到Productor, 通过Productor转换成surface，并将sureface handle传至WifidiaplayAdapter，然后createDisplay, 设置diaplay的surface到surfaceFlinger中。
+
+2. 关于source sink的RTSP的建立。
+   协议规定，Source端建立RTSP Server, Sink连接。RTSP的端口可以通过Mirrcast的WifiDirect来确定，如果没有确定，使用默认7236端口
+   RTSP连接建立之后，可以通过GET_PARAMETERS和SET_PARAMETERS进行交互，确定RTP的端口，RTP的Server由RTSP的Client端建立，然后在Setup时候建立PlaybackSession，并建立RTP连接。
+   由于Mirracast的RTSP是点对点的，所以，跟标准的RTSP协议交互上有很大的不同。
+
+2016.7.13
+
+    audio_policy.conf
+
+audio_hw_modules {
+  primary {                                      #### hwModule->name                    
+    outputs {
+      primary {                                  #### hwModule->IOProfile->name    IOProfile(thread)
+        sampling_rates 44100|48000
+        channel_masks AUDIO_CHANNEL_OUT_STEREO
+        formats AUDIO_FORMAT_PCM_16_BIT
+        devices AUDIO_DEVICE_OUT_EARPIECE|AUDIO_DEVICE_OUT_SPEAKER|AUDIO_DEVICE_OUT_WIRED_HEADSET|AUDIO_DEVICE_OUT_WIRED_HEADPHONE|AUDIO_DEVICE_OUT_LINE|AUDIO_DEVICE_OUT_ALL_SCO|AUDIO_DEVICE_OUT_AUX_DIGITAL|AUDIO_DEVICE_OUT_PROXY|AUDIO_DEVICE_OUT_FM
+        flags AUDIO_OUTPUT_FLAG_FAST|AUDIO_OUTPUT_FLAG_PRIMARY
+      }
+      raw {                                    #### hwModule->IOProfile->name       IOProfile(thread)
+        sampling_rates 48000
+        channel_masks AUDIO_CHANNEL_OUT_STEREO
+        formats AUDIO_FORMAT_PCM_16_BIT
+        devices AUDIO_DEVICE_OUT_EARPIECE|AUDIO_DEVICE_OUT_SPEAKER|AUDIO_DEVICE_OUT_WIRED_HEADSET|AUDIO_DEVICE_OUT_WIRED_HEADPHONE|AUDIO_DEVICE_OUT_LINE|AUDIO_DEVICE_OUT_ALL_SCO|AUDIO_DEVICE_OUT_AUX_DIGITAL|AUDIO_DEVICE_OUT_PROXY
+        flags AUDIO_OUTPUT_FLAG_FAST|AUDIO_OUTPUT_FLAG_RAW
+      }
+      deep_buffer {
+         sampling_rates 44100|48000
+         channel_masks AUDIO_CHANNEL_OUT_STEREO
+         formats AUDIO_FORMAT_PCM_16_BIT
+         devices AUDIO_DEVICE_OUT_SPEAKER|AUDIO_DEVICE_OUT_EARPIECE|AUDIO_DEVICE_OUT_WIRED_HEADSET|AUDIO_DEVICE_OUT_WIRED_HEADPHONE|AUDIO_DEVICE_OUT_LINE|AUDIO_DEVICE_OUT_ALL_SCO|AUDIO_DEVICE_OUT_AUX_DIGITAL|AUDIO_DEVICE_OUT_PROXY|AUDIO_DEVICE_OUT_FM
+         flags AUDIO_OUTPUT_FLAG_DEEP_BUFFER
+      }
+      multichannel {
+        sampling_rates 8000|11025|16000|22050|32000|44100|48000|64000|88200|96000|128000|176400|192000
+        channel_masks dynamic
+        formats AUDIO_FORMAT_PCM_16_BIT
+        devices AUDIO_DEVICE_OUT_AUX_DIGITAL|AUDIO_DEVICE_OUT_PROXY
+        flags AUDIO_OUTPUT_FLAG_DIRECT
+      }
+
+
+2016.7.21
+   qcom wifidisplay
+
+   1. 两个服务，一个是WfdService.java 和 SessionManagerService.java 组成一个java层服务，用于上呈下达，与WifiDisplayService建立连接。
+   2. WifiDisplayService里面重要的模块有：
+      1. RTSPSession， 管理RTSP状态机
+      2. WFDMMSource,  里面管理了所有source端的组件，包括muxer, videoSource, AudioSource.
+      3. VideoSource,  包括WFDMMSourceVideoEncode
+      4. VideoEncode,  调用openMax进行encoder编码，以及WFDMMSourceVideoCapture.
+      5. WFDMMSourceVideoCapture, 与surfaceflinger交互，抓取surfaceflinger生成的数据。
+      6. Muxer, WFDMMSourceMux和omx_filemux.cpp(wfd/mm/omx-mux/) qcom将muxer也封装成openMax的组件，WFDMMSourceMux将会调用openMax的标准接口使用OMX.qcom.file.muxer的内容。OMX.qcom.file.muxer将会接受数据并接受配置，调用qcom的公共库libFileMux进行TS流的数据packet, 完成之后调用libmmrtpencoder进行RTP的数据传输。
+
+
 
 
 

@@ -52,11 +52,11 @@ int writecode_to_targetproc(
         return -1;
 
     // get the values of 18 registers from target_pid
-    if ( ptrace_getregs( target_pid, ®s ) == -1 )
+    if ( ptrace_getregs( target_pid, &regs ) == -1 )
         goto exit;
 
     // save original registers 
-    memcpy( &original_regs, ®s, sizeof(regs) );
+    memcpy( &original_regs, @regs, sizeof(regs) );
 
     // get mmap address from target_pid
     // the mmap is the address of mmap in the cur process
@@ -71,11 +71,11 @@ int writecode_to_targetproc(
     parameters[5] = 0; //offset
 
     // execute the mmap in target_pid
-    if ( ptrace_call( target_pid, (uint32_t)mmap_addr, parameters, 6, ®s ) == -1 )
+    if ( ptrace_call( target_pid, (uint32_t)mmap_addr, parameters, 6, &regs) == -1 )
         goto exit;
 
     // get the return values of mmap <in r0>
-    if ( ptrace_getregs( target_pid, ®s ) == -1 )
+    if ( ptrace_getregs( target_pid, &regs) == -1 )
         goto exit;
 
     // get the start address for assembler code
@@ -130,14 +130,14 @@ int writecode_to_targetproc(
     // now the values of global variable is in the target process space
     ptrace_writedata( target_pid, remote_code_ptr, local_code_ptr, 0x400 );
 
-    memcpy( ®s, &original_regs, sizeof(regs) );
+    memcpy( &regs, &original_regs, sizeof(regs) );
 
     // set sp and pc to the start address of assembler code
     regs.ARM_sp = (long)remote_code_ptr;
     regs.ARM_pc = (long)remote_code_ptr;
 
     // set registers for target process
-    ptrace_setregs( target_pid, ®s );
+    ptrace_setregs( target_pid, &regs );
 
     // make the target_pid is not a child process of cur process
     // and make target_pid continue to running
@@ -257,7 +257,7 @@ int ptrace_call( pid_t pid, uint32_t addr, long *params, uint32_t num_params, st
     if ( i < num_params )
     {
         regs->ARM_sp -= (num_params - i) * sizeof(long) ;
-        ptrace_writedata( pid, (void *)regs->ARM_sp, (uint8_t *)¶ms[i], (num_params - i) * sizeof(long) );
+        ptrace_writedata( pid, (void *)regs->ARM_sp, (uint8_t *)params[i], (num_params - i) * sizeof(long) );
     }
     // set the pc to func <e.g: mmap> that will be executed
     regs->ARM_pc = addr;

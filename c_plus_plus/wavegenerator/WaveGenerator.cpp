@@ -94,8 +94,9 @@ int WaveGenerator::genSamples(vector<uint8_t> &vec, double time/*ms*/, float per
     double *sample = (double *)malloc(numSamples * sizeof(double));
 
     // generate the dual-channel sampling.
-    // y=Asin（ωx+φ）+h
+    // y = Asin（ωx+φ）+h
     for (int i = 0; i < numSamples / 2; i++) {
+        // ω = 2 * MP_I / ( mSampleRate * (1 / mFreqOfTone))
         sample[i * 2] = sin(2 * M_PI * i / (mSampleRate/mFreqOfTone));
         sample[i * 2 + 1] = 0 - sample[i * 2];
     }

@@ -1,4 +1,46 @@
 
+名词解释:
+
+1. access category (AC)   WMM  QOS
+    SME_QOS_EDCA_AC_BE = 0,  /* Best effort access category             */
+    SME_QOS_EDCA_AC_BK = 1,  /* Background access category              */
+    SME_QOS_EDCA_AC_VI = 2,  /* Video access category                   */
+    SME_QOS_EDCA_AC_VO = 3,  /* Voice access category                   */
+2. FCS: Frame Check Sequence（简称FCS）是802.3帧和Ethernet帧的最后一个字段，用于保存帧的CRC校验值。
+3. UC/MC/BC   单播/多播/广播
+4. RSN: Robust Security Network 强健安全网络
+   OSEN: The OSU Server-only authenticated layer 2 Encryption Network 
+5. TKIP（Temporal Key Integrity Protocol，临时密钥完整性协议）
+   MIC（Message Integrity Check，消息完整性校验）
+   WPA和WPA2的区别:
+   WPA: Transition Security Network(过渡安全网络) TKIP + 802.1X
+   WPA2: Robust Security Network(强健的安全网络)  CCMP + 802.1X
+   CCMP（Counter CBC-MAC Protocol） 计数器模式密码块链消息完整码协议,  Counter Mode-Cipher Block Chaining (CBC)-Message Authentication Code (MAC) Protocol (CCMP)（计数器模式和密码块链消息身份验证代码协议）
+6. 几种概念
+   WPA_CIPHER_*      ： TKIP/CCMP/WEP40...  通信数据的加密方式 
+   WPA_KEY_MGMT_*    ： PSK/802.1X/NONE...  wpa的key的管理方式，psk/eap...等， 如果是wep, 那么key管理方式为NONE
+   WPA_PROTO_*       ： WPA_PROTO_WPA/WPA_PROTO_RSN(WPA2)/WPA_PROTO_OSEN values to indicate WPA/WPA2
+
+7. VHT    very high throughput.
+   HT     high throuput
+   MCS    Modulation and Coding Scheme (MCS)
+
+8. dB: 首先, dB是一个纯计数单位: 对于功率, dB = 10*lg(A/B)。对于电压或电流，dB = 20*lg(A/B).dB的意义其实再简单不过了，就是把一个很大（后面跟一长串0的）或者很小（前面有一长串0的）的数比较简短地表示出来。如：
+   对于功率: 20dB = 10lg(A/B), 那么A/B = 100; 可以简单记住, 20dB就是100, 30dB就是1000, 40dB就就是10000, 2,3,4就表示了1后面0的个数.
+   dBm指的是功率,也就是dBmw, 是表示的mW.
+   dBm是一个表示功率绝对值的单位，计算公式为：10lg功率值/1mW。例如：如果发射功率为1mW，按dBm单位进行折算后的值应为：10 lg 1mW/1mW = 0dBm；对于40W的功率,则10 lg(40W/1mW)=46dBm。
+   0dBm表示1mw, 低于1mw的也就用负数表示了, 另外, 无线通信中通常接受功率都是小于1mw的, 大于1mw可能对人体有害.  无线路由器我们国家规定发射功率小于50mw. 移动基站的发射功率通常是20w, 一般不能离基站太近.
+
+9. txoplimit-value：EDCA的TXOP Limit参数，以32微秒为单位，取值范围为0～65535，TXOP为0表示只允许传输一个MPDU，最大值为65535。且受射频芯片的支持范围限制。
+
+10. PMKID: The PMKID is computed by applying a hash function (HMAC-SHA1-128) to the concatenation of the PMK, the label `PMK Name', the access point's MAC address (MAC_AP) and the station's MAC address (MAC_STA).   
+           PMKID = HMAC-SHA1-128(PMK, "PMK Name" | MAC_AP | MAC_STA)
+    PMKSA: PMKSA是起源和定义在80211i协议中，在80211i中，PMK是AP和Station连接成功之后保存下来的。The PMK is stored in the station and the access point with associated context information such as the access point's MAC addresses, the lifetime of the PMK and a unique identifier called PMKID. The collection of this information is called PMK Security Association (PMKSA)。PMK和连接的上下文信息(例如 AP的MAC地址，PMK的生命周期，PMKID）都被存储在Station和AP中，这些信息的集合叫做PMKSA
+    
+    When associating with an access point, the station determines if it has a valid PMK with the target access point by checking if it has a PMKSA that matches the target access point's MAC address. If such PMK does not exist, the station and the access point perform authentication using EAP. If the station determines that it shares a PMK with the target AP, then the station proposes the use of the PMK by including the PMKID in the RSN Information Element of the (Re)Association Request message. Upon reciept of a (Re)Assiciation Request with a PMKID, the access point checks whether is has a valid PMKSA with the same PMKID. If so, it begins the four-way handshake exchange using the negotiated PMKSA.
+11. PeerKey, 是IBSS网络使用的，是station-station中验证的结果。
+
+
 
 2015.12.9 22:22
 
@@ -39,10 +81,11 @@ wdiTraceEnableDAT=128
 #wdiTraceEnableCTL=128
 #wdiTraceEnablePAL=128
 
+动态打开WLAN DEBUG
+iwpriv wlan0 dump 321 10[vosTraceEnableVOSS] 4[VOS_TRACE_LEVEL_INFO]
+iwpriv wlan0 setwdidbg 1[wdiTraceEnableDA] 8[eWLAN_PAL_TRACE_LEVEL_ALL] 1[on]
 
 2015.12.10
-
-
 Every 1s: iwpriv wlan0 getStats                             2015-12-10 03:07:34
 
 wlan0     getStats:
@@ -97,6 +140,119 @@ called 52919 和classified BK 0, BE 52913, VI 0, VO 6
 Receive
 chains 79143, packets 103069, dropped 251, delivered 103069, refused 0
 接受是在增加的，尤其是delivered
+
+root@virgo:/ # iwpriv wlan0 getWlanStats                                       
+wlan0     getWlanStats:1  16  242  1  0  0  0  0  0  0  0  0  0  0  0  0  0  0  2  16  122  1  0  0  0  0  0  0  0  0  0  0  0  0  0  0  3  16  154  13  0  0  0  0  0  0  0  0  0  0  2  0  0  0  4  4  230  57  0  0  5  4  0  0  0  0  6  16  25  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  7  4  124  3  0  0  8  4  53  3  0  0  9  4  21  4  0  0  10  4  193  230  0  0  11  4  193  230  0  0  12  4  54  168  16  0  13  4  224  74  74  0  14  4  8  0  0  0  15  4  175  0  0  0  16  4  44  224  72  0  17  4  34  63  1  0  18  4  146  43  0  0  19  4  54  168  16  0  20  4  212  1  0  0  21  4  246  2  0  0  
+
+1  16  242  1  0  0  0  0  0  0  0  0  0  0  0  0  0  0   // 498                 // retry_cnt
+2  16  122  1  0  0  0  0  0  0  0  0  0  0  0  0  0  0   // 378                 // multiple_retry_cnt
+3  16  154  13  0  0  0  0  0  0  0  0  0  0  2  0  0  0  // 0x0D9A+0x2 = 3484   // tx_frm_cnt
+4  4  230  57  0  0                                       // 0x39E6 = 14822      // rx_frm_cnt
+5  4  0  0  0  0                                          // 0                   // frm_dup_cnt
+6  16  25  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0    // 25                  // fail_cnt
+7  4  124  3  0  0                                        // 0x037C = 892        // rts_fail_cnt
+8  4  53  3  0  0                                         // 0x0335 = 821        // ack_fail_cnt
+9  4  21  4  0  0                                         // 0x0415 = 1045       // rts_succ_cnt
+10  4  193  230  0  0                                     // 0xE6C1 = 59073      // rx_discard_cnt
+11  4  193  230  0  0                                     // 0xE6C1 = 59073      // rx_error_cnt
+12  4  54  168  16  0                                     // 0x10A836 = 1091638  // tx_byte_cnt
+13  4  224  74  74  0                                     // 0x4A4AE0 = 4868832  // rx_byte_cnt
+14  4  8  0  0  0                                         // 0x8 = 8             // rx_rate 4Mbps
+15  4  175  0  0  0                                       // 0xAF = 175          // tx_rate 87.5Mbps /* Transmit rate, in units of 500 kbit/sec */
+16  4  44  224  72  0                                     // 0x48E02C = 4775980
+17  4  34  63  1  0                                       // 0x013F22 = 81698
+18  4  146  43  0  0                                      // 0x2B92 = 11154
+19  4  54  168  16  0                                     // 0x10A836 = 1091638
+20  4  212  1  0  0                                       // 0x01D4 = 468
+21  4  246  2  0  0                                       // 0x02F6 = 758
+
+
+
+#define WLAN_STATS_INVALID            0
+#define WLAN_STATS_RETRY_CNT          1
+#define WLAN_STATS_MUL_RETRY_CNT      2
+#define WLAN_STATS_TX_FRM_CNT         3
+#define WLAN_STATS_RX_FRM_CNT         4
+#define WLAN_STATS_FRM_DUP_CNT        5
+#define WLAN_STATS_FAIL_CNT           6
+#define WLAN_STATS_RTS_FAIL_CNT       7
+#define WLAN_STATS_ACK_FAIL_CNT       8
+#define WLAN_STATS_RTS_SUC_CNT        9
+#define WLAN_STATS_RX_DISCARD_CNT     10
+#define WLAN_STATS_RX_ERROR_CNT       11
+#define WLAN_STATS_TX_BYTE_CNT        12
+
+#define WLAN_STATS_RX_BYTE_CNT        13
+#define WLAN_STATS_RX_RATE            14
+#define WLAN_STATS_TX_RATE            15
+
+#define WLAN_STATS_RX_UC_BYTE_CNT     16
+#define WLAN_STATS_RX_MC_BYTE_CNT     17
+#define WLAN_STATS_RX_BC_BYTE_CNT     18
+#define WLAN_STATS_TX_UC_BYTE_CNT     19
+#define WLAN_STATS_TX_MC_BYTE_CNT     20
+#define WLAN_STATS_TX_BC_BYTE_CNT     21
+
+typedef struct sAniSummaryStatsInfo
+{
+    tANI_U32 retry_cnt[4];         //Total number of packets(per AC) that were successfully transmitted with retries
+    tANI_U32 multiple_retry_cnt[4];//The number of MSDU packets and MMPDU frames per AC that the 802.11 
+                                   //station successfully transmitted after more than one retransmission attempt
+
+    tANI_U32 tx_frm_cnt[4];        //Total number of packets(per AC) that were successfully transmitted 
+                                   //(with and without retries, including multi-cast, broadcast)     
+    tANI_U32 rx_frm_cnt;           //Total number of packets that were successfully received 
+                                   //(after appropriate filter rules including multi-cast, broadcast)    
+    tANI_U32 frm_dup_cnt;          //Total number of duplicate frames received successfully
+    tANI_U32 fail_cnt[4];          //Total number packets(per AC) failed to transmit
+    tANI_U32 rts_fail_cnt;         //Total number of RTS/CTS sequence failures for transmission of a packet
+    tANI_U32 ack_fail_cnt;         //Total number packets failed transmit because of no ACK from the remote entity
+    tANI_U32 rts_succ_cnt;         //Total number of RTS/CTS sequence success for transmission of a packet 
+    tANI_U32 rx_discard_cnt;       //The sum of the receive error count and dropped-receive-buffer error count. 
+                                   //HAL will provide this as a sum of (FCS error) + (Fail get BD/PDU in HW)
+    tANI_U32 rx_error_cnt;         //The receive error count. HAL will provide the RxP FCS error global counter.
+    tANI_U32 tx_byte_cnt;          //The sum of the transmit-directed byte count, transmit-multicast byte count 
+                                   //and transmit-broadcast byte count. HAL will sum TPE UC/MC/BCAST global counters 
+                                   //to provide this.
+}tAniSummaryStatsInfo, *tpAniSummaryStatsInfo;
+
+typedef struct tagCsrGlobalClassDStatsInfo
+{
+   tANI_U32 tx_uc_frm_cnt;
+   tANI_U32 tx_mc_frm_cnt;
+   tANI_U32 tx_bc_frm_cnt;
+   tANI_U32 rx_uc_frm_cnt;
+   tANI_U32 rx_mc_frm_cnt;
+   tANI_U32 rx_bc_frm_cnt;
+   tANI_U32 tx_uc_byte_cnt[4];
+   tANI_U32 tx_mc_byte_cnt;
+   tANI_U32 tx_bc_byte_cnt;
+   tANI_U32 rx_uc_byte_cnt[4];
+   tANI_U32 rx_mc_byte_cnt;
+   tANI_U32 rx_bc_byte_cnt;
+   tANI_U32 rx_byte_cnt;
+   tANI_U32 num_rx_bytes_crc_ok;
+   tANI_U32 rx_rate;
+
+}tCsrGlobalClassDStatsInfo;
+
+
+typedef struct tagCsrGlobalClassAStatsInfo
+{
+   tANI_U32 rx_frag_cnt;
+   tANI_U32 promiscuous_rx_frag_cnt;
+   //tANI_U32 rx_fcs_err;
+   tANI_U32 rx_input_sensitivity;
+   tANI_U32 max_pwr;
+   //tANI_U32 default_pwr;
+   tANI_U32 sync_fail_cnt;
+   tANI_U32 tx_rate;
+   //mcs index for HT20 and HT40 rates
+   tANI_U32  mcs_index;
+   //to defferentiate between HT20 and HT40 rates;short and long guard interval
+   tANI_U32  tx_rate_flags;
+
+}tCsrGlobalClassAStatsInfo;
 
 /proc/net/各个文件功能分析统计：
 
@@ -184,6 +340,61 @@ Local:
 
 2015.12.25  13:15
 
+ip 命令的详细信息
+
+1.  ip link ... 二层协议相关操作
+
+    ip -s link show [device]
+    
+root@virgo:/ # ip -s link show
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 16436 qdisc noqueue state UNKNOWN mode DEFAULT 
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    RX: bytes  packets  errors  dropped overrun mcast   
+    0          0        0       0       0       0      
+    TX: bytes  packets  errors  dropped carrier collsns 
+    0          0        0       0       0       0      
+   ...
+   ...
+   ...  
+22: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DORMANT qlen 1000
+    link/ether 0c:1d:af:47:db:84 brd ff:ff:ff:ff:ff:ff
+    RX: bytes  packets  errors  dropped overrun mcast   
+    4438676    9429     0       41      0       0      
+    TX: bytes  packets  errors  dropped carrier collsns 
+    1114726    9493     0       0       0       0      
+23: p2p0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc mq state DOWN mode DORMANT qlen 1000
+    link/ether 0e:1d:af:47:db:84 brd ff:ff:ff:ff:ff:ff
+    RX: bytes  packets  errors  dropped overrun mcast   
+    0          0        0       0       0       0      
+    TX: bytes  packets  errors  dropped carrier collsns 
+    0          0        0       0       0       0      
+    
+    ip link set p2p0 down
+    ip link set p2p0 name eth0 // 修改p2p0的名字
+
+2. ip address ... 三层协议相关
+
+    scope SCOPE_VALUE
+    the scope of the area where this address is valid.  The available scopes are listed in file /etc/iproute2/rt_scopes.  Predefined scope values are:
+        global - the address is globally valid.
+        site - (IPv6 only) the address is site local, i.e. it is valid inside this site.
+        link - the address is link local, i.e. it is valid only on this device.
+        host - the address is valid only inside this host.
+
+    设置地址的有效范围,它用于内核为数据包设置源, SCOPE_VALUE(注 2) 地址。有效的范围在/etc/iproute2/tr_scopes 文件列出,系统预先设定了一些范围值:
+    global 这个地址全局有效。
+    link   这个地址是局部连接,也就是只有目标地址是这个设备地址时,才有效。
+    site   (只适用于 IPv6) 地址在站点内部有效。
+    host   地址在主机内部有效。
+
+3. ip route
+
+   the scope of the destinations covered by the route prefix.  SCOPE_VAL may be a number or a string from the file /etc/iproute2/rt_scopes.  If this parameter is omitted, ip assumes scope
+   global for all gatewayed unicast routes, scope link for direct unicast and broadcast routes and scope host for local routes.
+   src & scope == ip address & scope   
+
+
+
 ip rule show的规则
 路由表的规则的优先级是从小到大进行匹配的。
 0:  from all lookup local 
@@ -257,8 +468,26 @@ permission = PERMISSION_SYSTEM
 
 2015.12.25 14:44
 SOL_SOCKET, SO_MARK
-非中重要，在没有默认路由的情况下，如果使用想使用路由，就必须通过SO_MARK
-现在Android上面的每个socket应该都有这只mark值
+非常重要，在没有默认路由的情况下，如果使用想使用路由，就必须通过SO_MARK
+
+1.  现在Android上面的每个socket应该都有这只mark值， socket mark值的默认标记方式
+   Android在libc中对几个socket函数进行了hook, 包括socket, connect, accept等重要的几个方法进行hook, 每当调用这几个方法的时候就会进行判断， 是否要
+设置socket的SO_MARK属性，通常情况下，family == AF_INET || family == AF_INET6， 都会配置SO_MARK属性。
+   有两种类型配置SO_MARK, 一种是通过ConnectivitySerivce的接口 BindProcessToNetwork对整个进程的Socket进行绑定， 之后这个进程所有创建的socket， 都会绑定到这个networkid上, 这种方式在Socket创建的时候直接将socket的SO_MARK指定成为配置的Netid
+   另一种方式是没有通过BindProcessToNetwork对Netid进行指定，这个时候，创建socket的时候不会配置SO_MARK, 但是在Connect和Accept的时候，会配置其SO_MARK， 具体的ID是NETD里面记录的DefaultNetid， 因此，这种方式仅仅对于UDP和TCP两种协议有效，对于ICMP等其他协议没有作用。
+   同时， 对于通过BindProcessToNetwork进行指定的NETID, 这个时候fwMark上会标记上explicitlySelected为true
+   关于permission域的值，在指定SO_MARK的时候直接填入的，所以，只要是指定了SO_MARK的，都会明确指定permission, permission是通过networkController->getPermissionForUser获取的，小于10000的，都属于SYSTEM权限，也就是0x3，其他APP的，根据AndroidManifest里面指定的网络权限配置。
+
+
+2. 关于使用NETLINK_INET_DIAG进行destroySockets
+   netlink中的一种协议NETLINK_INET_DIAG，在Android中，会使用到这个netlink socket，对相关的socket进行monitor，会有什么场景应用到这个功能呢？ 一般情况下，如果我们在使用wifi在看视频的时候，数据包会从server端源源不断的书送过来，然后送到上层APP，但是如果中途wifi断掉时候，这个网络连接会发生什么呢，继续接收数据，但是收不到任何数据，但是这个时候不能无限的等下去吧，一般的软件都会设定一个超时的时间，时间到了，就会收到ETIMEOUT的错误，在Android中也做了一些优化，试想一下网络断了，其实就意味着这个链接没什么用了，即使重连之后，也许Wifi的IP地址会变了，这个链接就不可用了，所以在断线的时候，Android网络管理程序就会去dump当前源地址对应的socket，然后destroy掉。
+   进行destroy的时机有三种情况：
+   1. 一种是我们对Firewall的chain进行使能的时候，需要对被规则限制无法上网的那些UID的socket进行destroy，然后这些UID的APP在再次写入数据的时候会收到ECONNABORTED错误，并向服务器发送reset信号
+   2. 一种是在收到相关接口的地址被移除的时候， 此时，会对之前是使用这个地址的socket进行destroy.
+   3. 对于VPN的网络，当将某个UID加入到使用这个VPN的时候，会将这个UID上的socket进行destroy,已方便进行socket重建， 另外，从VPN中移除网络的时候同样也会重建。
+     
+3. 很重要的一个问题是，通常情况下我们都不会BindProcessToNetwork, 都是使用系统默认的网络进行SO_MARK的设置， 这个时候我们就需要判断当前UID的默认网络，当我们判断当前UID的默认网络的时候，首先会查找当前的VPN网络，如果UID可以使用VPN网络，那么SO_MARK设置的就是VPN网络，VPN的VPNConfig中可以指定禁止的网络和允许的网络。
+
 
 2016.1.5 14:50
 iptables 调试log
@@ -304,21 +533,7 @@ iptables -I bw_penalty_box 1 -m owner ! --uid-owner 10097 --jum
    当数据网络连接之后并不会直接建立链接，而是当有需要的networkRequest的时候才会建立真正的链接。通常情况下在connectivityService里面会有一个DefaultNetworkRequst来维护默认链接请求。并且请求会根据分数来选择唯一的一个网络。
    当有新的请求注册是，会通过networkFactory将这个请求注册到所有的网络中，网络的具体实现方（比如WIFI），会判断这个网络是否需要自己建立连接，然后根据这个信息来建立和释放链接
 
-
-
 2016.4.18:
-
-1. qcom wlan driver:
-
-wcnss:  wlan connectivity network subsystem
-HDD:    host device driver
-AMP:    bluetooth alternate MAC/PHY 高速蓝牙的相关协议，利用80211进行实现，类似当wlan空闲时，利用wlan的phy进行蓝牙数据的传输。
-BAP:    BT-AMP
-DXE:    wlan data transfer abstraction layer.
-VOSS:   virtual Operating System Services.
-CSR:    Common Scan and Roaming Module interfaces.
-WDA:    WLAN DEVICE ADAPTATION LAYER
-WDI:    Wlan Device Interface
 
 2. WLAN driver
 Linux Kernel对于wlan的driver分了两个子系统，一个是cfg80211模块，另外一个就是wireless network device（netdev）模块。
@@ -343,6 +558,7 @@ Linux Kernel对于wlan的driver分了两个子系统，一个是cfg80211模块�
    PowerManagementMode: ACTIVE/Power Save,  An enumerated type that describes the desiredpower management mode of the STA.
    WakeUp: True/false. When true, the MAC is forced immediately into the Awake state. This parameter has no effect if the current power management mode is ACTIVE.没太理解个参数的意思，当为true的时候，MAC是被立即强制唤醒的，如果当前在ACTIVE状态，那么是没反映的。p.s. 与PowerManagementMode的关系是怎样的呢，如果powerManageMentMode是PowerSave是怎样的呢？
    ReceiveDTIMs: When true, this parameter causes the STA to awaken to receive all DTIM frames. When false, the STA is not required to awaken for every DTIM frame.这个是比较重要的一个参数，当为true的时候，station会唤醒接受所有的DTIM帧，当false的时候，station是不需要唤醒检查没一个DTIM帧。
+   
 
 7. Block ACK
    在80211N中加入这个技术，即类似于TCP协议的控制, 在之前的80211协议中规定，对端收到一个帧后必须理解回复一个ACK，block ack允许收到几个帧之后统一用一个ACK来确认之前所欲的数据包。
@@ -414,7 +630,374 @@ Linux Kernel对于wlan的driver分了两个子系统，一个是cfg80211模块�
    This indicates to the device that it should stay on a given channel for a given time, to implement a P2P listen phase. Can also be canceled, since it is also used to implement off-channel TX for group negotiation or invitation (but see below)
 
 
-2016-05-18  00:24
+2016-05-18 - 2016....
+
+qcom wlan driver 专题
+1. qcom wlan driver:
+wcnss:  wlan connectivity network subsystem
+HDD:    host device driver
+AMP:    bluetooth alternate MAC/PHY 高速蓝牙的相关协议，利用80211进行实现，类似当wlan空闲时，利用wlan的phy进行蓝牙数据的传输。
+BAP:    BT-AMP
+DXE:    DMA transfer engine,  wlan data transfer abstraction layer.
+VOSS:   virtual Operating System Services.
+CSR:    Common Scan and Roaming Module interfaces.
+WDA:    WLAN DEVICE ADAPTATION LAYER
+WDI:    Wlan Device Interface
+MAC:     Media Access Controller
+WMA:    Wireless Module Adapter
+WMI:    Wireless Module Interface
+PAL:    Platform Abstraction Layer interfaces
+PMM:    power management module
+PE:     power entry
+RRM:    Radio Resource Management
+LIM:    ....?  Link Interface Management ?
+WDA_DS  WDA Data Abtraction
+
+1. WDI 是 cpu与wlan固件进行通信的接口
+    WDI通常会通过SMD发送消息给fimeware，然后并且从firmware中接受消息。
+    在WDI初始化时候，会设置callback到smd中
+    wctsCBs.wctsNotifyCB      = WDI_NotifyMsgCTSCB;
+    wctsCBs.wctsNotifyCBData  = &gWDICb;
+    wctsCBs.wctsRxMsgCB       = WDI_RXMsgCTSCB;
+    wctsCBs.wctsRxMsgCBData   = &gWDICb;
+    所以WDI位于WLAN Driver通信的最后一层, 所有的消息都通过WDI发送出去。
+
+    WDI里面又有细分了很多子模块，包括(WCTS BP, STA, WDTS...)
+    WCTS(WLAN control transport service)
+    WDTS( DATA Transport Service)
+  
+2. WDA 
+    是在在WDI上面又封装的一个设备适配层，按照qcom的注释的解释是为了适配Prima和Volans的不同device. Prima是qcom在WCN3660之后wifi driver的名字, 就是WDI层需要透过WDA进行调用。
+    WDA的大部分接口的调用都是通过message进行发送的。需要通过wdaPostCtrlMsg, wdaPostCfgMsg, uMacPostCtrlMsg进行接口的调用。
+    wdaPostCtrlMsg会通过vos_mq_post_message(VOS_MQ_ID_WDA, msg) 将消息添加到wdaMsgQueue里面去。有VosMcThread取出来并通过WDA_McProcessMsg进行执行。WDA_McProcessMsg会根据消息类型执行不同的方法，最终会调用到WDI发送到硬件。
+    wdaPostCfgMsg应该是因为不会有延迟等原因，会在当前线程直接执行
+
+3. IEEE80211
+    SME, MLME-SAP, MLME, MAC, PLME-SAP, PLME, PHY.
+            MLME-SAP
+    SME -----------------> MLME
+                            |
+                            |
+            (MLME-PLME-SAP) |
+                            |
+                            |
+                            |
+            PLME-SAP        
+    SME -----------------> PLME
+
+    为了提供正确的MAC操作，所以每个Station都有一个SME(State Management Enties), wpa_supplicant就是SME的实现。
+    MLME-SAP/PLME-SAP就是cfg80211定义的这些接口，Linux Kernel里面cfg80211的实现就是MLME/PLME.
+    PLME的大部分应该还是在qcom的driver中, 同时driver中也实现了SME的部分。
+
+    MAC: MAC子层的结构包括分布式协作功能(DCF:争用信道服务), 点协调功能(PCF:无争用信道服务，由AP统一控制), 混合协调功能(HCF), 网格协调功能(MCF), MAC数据服务。
+MAC数据服务提供MSDU的传输与另外的MAC实体， 包括分片，组装分片，多码率支持，MSDU传输等等服务。
+
+4.  数据发送的过程
+    ndo_start_xmit -> hdd_hard_start_xmit (HDD) -> TL --> McTxThread[TL] --> WDA(WDTS) -> WDI_DS_TxPacket() --> smd
+
+5.  HDD
+    host device driver与kernel的交互和接口
+
+6.  VOSS
+    VosMCThread, VosTXThread, VosRXThread
+    在驱动初始化的时候创建的三个thread, 维护驱动的整个状态机。
+    三个线程，执行的队列是不同的。
+
+7.  SAP
+    soft AP相关接口 SME
+
+
+8. 启动WLAN 过程, 通常AP通过总线与WLAN 芯片进行数据交互, 目前的总线有WLAN总线有 SDIO/USB/PCI, 在 probe函数中通常会调用hdd_wlan_startup进行WLAN的初始化, 在这个方法中, 比较重要的两个节点是申请并注册CFG80211设备和注册netdev设备
+qcld 初始化过程
+  hif_pci_probe
+   |—> hdd_wlan_startup
+     |—>  wlan_hdd_cfg80211_wiphy_alloc(sizeof(hdd_context_t))                                            // 创建cfg80211设备
+     |    |—>  wiphy_new(&wlan_hdd_cfg80211_ops, priv_size);    
+     |—>  hdd_parse_config_ini( pHddCtx );                                                                // 解析 WCNSS_qcom_cfg.ini文件, 并将解析完成后的结果放入 pHddCtx->cfg_ini中
+     |    |—> request_firmware(&fw, WLAN_INI_FILE, pHddCtx->parent_dev);                                   // 通过firmware的接口获取cfg.ini文件
+     |    |—> hdd_apply_cfg_ini(pHddCtx, cfgIniTable, i);                                               // 解析具体的参数并设置到 pHddCtx->cfg_ini中.
+     |—>  wlan_hdd_cfg80211_init(dev, wiphy, pHddCtx->cfg_ini)                                            // 对wiphy 进行初始化
+     |    |—> wiphy->mgmt_stypes = wlan_hdd_txrx_stypes;                                                   // 配置STA/SAP/GO...可发送或者接收的frame类型
+     |    |—> wiphy->...                                                                                   // 初始化wiphy的各个成员变量
+     |    |—> wiphy->bands[IEEE80211_BAND_2GHZ] = &wlan_hdd_band_2_4_GHZ;                                  // 2.4G Band的参数
+     |    |—> wiphy->bands[IEEE80211_BAND_2GHZ]->channels                                                  // 2.4G 的信道列表
+     |    |—> wiphy->cipher_suites                                                                         // 支持的加密方式
+     |—>  wlan_hdd_nl_init(pHddCtx)                                                                       // 初始化netlink服务, 用于CNSS_LOGGER
+     |—>  hdd_vos_trace_enable(VOS_MODULE_ID_TL,pHddCtx->cfg_ini->vosTraceEnableTL);                      // 设置trace的级别 
+     |—>  vos_nv_open();                                                                                  // NV(指的是NVRAM(EEPROM等)), 在这里说的就是固件, 并会加载默认的固件进去.
+     |—>  vos_open();                                                                                     // virtual Operating System Services 打开和初始化
+     |    |—> vos_timer_module_init                                                                      // vos timer初始化
+     |    |—> vos_init_log_completion
+     |    |—> vos_sched_open                                                                             // 初始化vos的调度器,包含主控线程调度,接收线程和发送线程 1.初始化所有的消息队列, 2.主线程创建并准备接收和分发消息. 3.Tx/RxThread创建并准备接收和分发消息
+     |    |   |—> kthread_create(VosMCThread, pSchedContext,"VosMCThread")                                 // 创建主线程
+     |    |   |—> kthread_create(VosTlshimRxThread,pSchedContext,"VosTlshimRxThread")                      // 创建RxThread, 在qcld-2.0的系统上, 没有创建TxThread.
+     |    |   |—> HTCCreate                                                                                // HTC(high throughput control)
+     |    |   |—> vos_set_nan_enable                                                                       // NAN相关功能
+     |    |   |—> vos_set_ac_specs_params                                                                  // 设置AC规范的一些参数, 参考 cfg_ini->tx_sched_wrr_be, tx_sched_wrr_bk, tx_sched_wrr_vi, tx_sched_wrr_vo
+     |    |   |—> WDA_open                                                                                 // WLAN DEVICE ADAPTATION LAYER打开并初始化, WDA下面还有WMA和WMI两个层次, VOS调用只是跟WDA关联, 由WDA具体进行适配
+     |    |   |   |—> vos_alloc_context(...&wma_handle...)                                                 // 申请WMI handle
+     |    |   |   |—> wmi_unified_attach(wma_handle, wma_wow_tx_complete)                                  // 将wma handle attach到WMI并 创建和初始化WMI, wma_wow_tx_complete是在WMI发送完成后的回调方法.
+     |    |   |   |—> mac_params->maxBssId = WMA_MAX_SUPPORTED_BSS;
+     |    |   |   |—> wma_handle->... wlan_resource_config, max_station, max_bssid, interfaces...          // 初始化WMA
+     |    |   |   |—> wmi_unified_register_event_handler(..., WMI_VDEV_START_RESP_EVENTID, wma_vdev_start_resp_handler);  // 向WMI注册WMI_VDEV_START_RESP_EVENTID的handler, 这些handler实际上要处理的是WMI从fw接收来的消息, 然后wmi回调过来的.
+     |    |   |   |—> ...  (WMI_VDEV_STOPPED_EVENTID, wma_vdev_stop_resp_handler)                          // WMI_VDEV_STOPPED_EVENTID 的event handler.
+     |    |   |   |—> WMI_PEER_STA_KICKOUT, WMI_UPDATE_STATS, WMI_PEER_ESTIMATED_LINKSPEED,MGMT_TX_COMPLETION,ROAM, MGMT_RX, 具体可以参考 wmi_unified.h中的WMI_EVT_ID enum.
+     |    |   |—> sysOpen
+     |    |   |—> macOpen                                                                                  //  Media Access Controller 初始化
+     |    |   |   |—> peOpen
+     |    |   |—> sme_Open                                                                                 // SME 初始化, 部分wpa_supplicant的功能, State Mgmt Entry 状态管理实体, 包括扫描, roaming 和power save的管理
+     |    |   |   |—> ccmOpen
+     |    |   |   |—> csrOpen                                                                              // common scan and roam 
+     |    |   |   |—> pmcOpen                                                                              // power manager controller(for ps)
+     |    |   |   |—> sme_QosOpen
+     |    |   |—> WLANTL_Open                                                                              // Allocate and Initialize transport layer (txrx), 传输层初始化, 发送和接收相关
+     |    |   |   |—> vos_alloc_context(...&tl_shim...)                                                    // txrx_tl_shim_ctx, 发送接收相关的数据结构
+     |    |—> vos_preStart( pHddCtx->pvosContext );
+     |    |   |—> macPreStart
+     |    |   |—> ccmStart
+     |    |   |—> wma_pre_start
+     |    |   |   |—> wmi_unified_connect_htc_service                                                       //  Open endpoint for ctrl path - WMI <--> HTC
+     |    |   |   |   |—> connect.EpCallbacks.EpTxComplete = wmi_htc_tx_complete                            //  总线完成发送回调
+     |    |   |   |   |—> HTCConnectService
+     |    |   |   |—> vos_mq_post_message( VOS_MQ_ID_WDA, {wma_msg.type = WNI_CFG_DNLD_REQ});               //  Trigger the CFG DOWNLOAD
+     |    |   |—> HTCStart
+     |    |   |—> HTCSetTargetToSleep
+     |    |—> wlan_hdd_update_wiphy                                                                         // 根据上面信息, 重新调整wiphy相关信息
+     |    |—> hdd_set_sme_config                                                                            // 更新sme.config
+     |    |—> wlan_hdd_reg_init
+     |    |   |—> wiphy->wowlan {WIPHY_WOWLAN_ANY, WIPHY_WOWLAN_MAGIC_PKT,WIPHY_WOWLAN_DISCONNECT}          // 定义可以被wow唤醒的包类型
+     |    |—> wlan_hdd_cfg80211_register                                                                    // 将之前创建的cfg80211设备向kernel cfg80211子系统注册, 之后可以通过cfg80211/nl80211对WiFi进行管理
+     |    |   |—> wiphy_register(wiphy)                                                                     // 注册
+     |    |—> hdd_initialize_mac_address
+     |    |—> vos_start                                                                                     // Start VOSS which starts up the SME/MAC/HAL modules and everything else
+     |    |   |—> WDA_start(pVosContext);
+     |    |   |   |—> wmi_unified_register_event_handler(WMI_SCAN_EVENTID) ...                              // 注册各种事件回调
+     |    |   |—> macStart
+     |    |   |   |—> peStart
+     |    |   |—> sme_Start
+     |    |   |   |—> csrStart
+     |    |   |   |—> pmcStart 
+     |    |   |—> WLANTL_Start
+     |    |—> pAdapter = hdd_open_adapter(wlan%d)                                                            // 创建一个netdev设备, 也就是网卡, 专门管理数据帧
+     |    |   |—> hdd_alloc_station_adapter
+     |    |   |   |—> pWlanDev = alloc_netdev_mq
+     |    |   |—> hdd_init_station_mode
+     |    |   |   |—> sme_OpenSession
+     |    |   |   |—> hdd_register_wext                                                                      // 注册iw调用的wext接口
+     |    |   |   |—> hdd_init_tx_rx
+     |    |   |   |   |—> hdd_list_init( &pAdapter->wmm_tx_queue[i])                                         // 初始化发送队列.
+     |    |   |—> hdd_register_interface                                                                     // 将之前创建netdev注册到kernel的network子系统
+     |    |   |   |—>register_netdevice(pWlanDev)                                                            // 调用register_netdevice进行注册
+     |    |—> hdd_debugfs_init                                                                               // 在/sys/kernel/debug/ 创建wlan目录, 进行wlan的调试
+     |    |—> btc_activate_service(pHddCtx)                                                                  // Activate BTC handler. register a handler to receive netlink messages addressed to WLAN_NL_MSG_BTC from user space
+     |    |—> oem_activate_service(pHddCtx)                                                                  // registers a handler to receive netlink message from an OEM application process.
+     |    |—> cnss_diag_activate_service                                                                     // registers a handler to receive netlink message from an cnss-diag application process.
+     |    |—> hdd_register_mcast_bcast_filter
+     |    |—> wlan_hdd_cfg80211_register_frames
+     |    |—> register_netdevice_notifier(&hdd_netdev_notifier);                                             // register net device notifier for device change notification
+     |    |—> sme_InitThermalInfo 
+     |    |—> sme_TxpowerLimit
+     |    |—> register_inetaddr_notifier(&pHddCtx->ipv4_notifier);                                           // Register IPv4 notifier to notify if any change in IP  So that we can reconfigure the offload parameters
+     | --> over..... probe和WLAN初始化完成
+
+
+pronto架构 prima初始化过程, pronto初始化与qcld初始化不同的是, prima应该是WLAN芯片与AP芯片封装到一块的, 不通过总线probe函数进行WLAN的初始化, 由WLAN自己进行初始化. 但是hdd之后的部分包括vos的初始化等,都是相同的, 相同的注释可以参考qcld的注释
+  module_init(hdd_module_init) —> hdd_driver_init
+     |—> vos_wake_lock_init(&wlan_wake_lock, "wlan");                                                       // 申请WLAN wake lock
+     |—> dev = wcnss_wlan_get_device();                                                                     // 获取 pdev, prima架构的与qcld不同, PCI的初始化和驱动都是buildin到kernel的
+     |—> vos_preOpen                                                                                        // vos的一些上下文创建和部分初始化
+     |—> hdd_wlan_startup
+     |   |—> wlan_hdd_cfg80211_wiphy_alloc
+     |   |—> hdd_parse_config_ini
+     |   |   |—> request_firmware(WLAN_INI_FILE)
+     |   |   |—> hdd_apply_cfg_ini
+     |   |   |—> release_firmware
+     |   |—> wlan_hdd_cfg80211_init
+     |   |—> vos_nv_open
+     |   |   |—>hdd_request_firmware(WLAN_NV_FILE,...)
+     |   |—> vos_init_wiphy_from_nv_bin
+     |   |—> vos_open
+     |   |   |—> vos_sched_open
+     |   |   |   |—> kthread_create(VosMCThread, pSchedContext, "VosMCThread");
+     |   |   |   |—> kthread_create(VosTXThread, pSchedContext, "VosTXThread");
+     |   |   |   |—> kthread_create(VosRXThread, pSchedContext, "VosRXThread");
+     |   |   |—> WDA_open( gpVosContext, devHandle, &macOpenParms );
+     |   |   |   |—> WDI_Init                                                                                // WDI_Init is used to initialize the DAL(data access layer ). 数据访问层, 实际上是封装的总线接口, 以及DMA进行总线通信的驱动
+     |   |   |   |   |—> wpalOpen                                                                            // 平台适配层初始化, 这个里面包含了DXE的初始化
+     |   |   |   |   |   |—> wpalDeviceInit                                                                  //
+     |   |   |   |   |   |   |—> wcnss_wlan_get_memory_map(wcnss_device);
+     |   |   |   |   |   |   |—> wcnss_wlan_get_dxe_tx_irq(wcnss_device);                                    // 获取发送完成中断号
+     |   |   |   |   |   |   |—> wcnss_wlan_get_dxe_rx_irq(wcnss_device);                                    // 获取接收数据中断号
+     |   |   |   |   |   |   |—> ioremap(wcnss_memory->start, resource_size(wcnss_memory))
+     |   |   |   |   |   |—> WCTS_OpenTransport                                                               // 初始化控制传输子系统, 控制传输通过SMD通道进行
+     |   |   |   |   |   |   |—> smd_named_open_on_edge("WLAN_CTRL", SMD_APPS_WCNSS, ...)                     // Open the SMD channel, 打开WLAN_CTRL的SMD通道
+     |   |   |   |   |   |   |—> smd_disable_read_intr
+     |   |   |   |   |   |—> WDTS_openTransport                                                               // Open the Data Transport, 打开WLAN_DATA传输
+     |   |   |   |   |   |   |—> gTransportDriver.open() <----> (WLANDXE_Open)                                // Open host DMA Transmit driver, allocate DXE resources
+     |   |   |   |   |   |   |   |—> tempDxeCtrlBlk->rxIsrMsg->callback = dxeRXEventHandler                   // 
+     |   |   |   |   |   |   |   |—> WDI_DS_MemPoolCreate                                                      // 创建内存池
+     |   |   |   |   |   |   |   |   |—> dma_alloc_coherent(wcnss_device, uAllocLen, &PhyAddr, GFP_KERNEL);
+     |   |   |   |   |   |   |—> gTransportDriver.register_client <----->  WLANDXE_ClientRegistration)
+     |   |   |   |   |   |   |   |—> dxeCtxt->rxReadyCB     = WDTSCb.rxFrameReadyCB;(WDTS_RxPacket)            // 注册接收数据包的callbak
+     |   |   |—> vos_packet_open()
+     |   |   |—> sysOpen
+     |   |   |—> macOpen
+     |   |   |   |—> peOpen
+     |   |   |—> sme_Open
+     |   |   |—> WLANTL_Open
+     |   |—> vos_preStart
+     |   |   |—> macPreStart
+     |   |   |—> ccmStart
+     |   |   |—> WDA_preStart
+     |   |—> hdd_set_sme_config                                                                               // 根据config初始化smeConfig
+     |   |—> hdd_update_config_from_nv
+     |   |—> vos_start
+     |   |   |—> WDA_NVDownload_Start
+     |   |   |   |—> WDI_NvDownloadReq
+     |   |   |—> WDA_start
+     |   |   |   |—> WDI_Start
+     |   |   |   |   |—> WDI_ProcessStartReq
+     |   |   |   |   |   |—> WDI_ProcessStartRsp
+     |   |   |   |   |   |   |—> WDTS_startTransport(pWDICtx)
+     |   |   |   |   |   |   |   |—> gTransportDriver.start  <---->  WLANDXE_Start)
+     |   |   |   |   |   |   |   |   |—> dxeEngineCoreStart                                                   // DMA的初始化和启动, 终端配置等
+     |   |   |   |   |   |   |   |   |—> dxeChannelStart                                                      // Trigger to start DMA channel
+     |   |   |   |   |   |   |   |   |—> wpalRegisterInterrupt                                                // 向Kernel注册各种中断, 包括DXE_INTERRUPT_TX_COMPLE发送完成, DXE_INTERRUPT_RX_READY接收
+     |   |   |   |   |   |   |   |   |—> wpalEnableInterrupt(DXE_INTERRUPT_RX_READY)                          // 启动Rx中断, 当收到数据的时候, 调用接收中断的回调函数, 执行数据接收.
+     |   |   |   |   |   |   |   |   |   |—> request_irq(gpEnv->rx_irq, wpalRxIsr, IRQF_TRIGGER_HIGH,"wcnss_wlan", gpEnv);  // 注册中断, 中断号是前面wpalDeviceInit 获取到的, 中断回调函数是wpalRxIsr, 高电平触发
+     |   |   |   |   |   |   |   |   |   |—> enable_irq_wake(gpEnv->rx_irq);                                  //  启动中断
+     |   |   |—> macStart
+     |   |   |   |—> peStart
+     |   |   |   |   |—> limInitialize
+     |   |   |   |   |   |—> limStart
+     |   |   |   |   |   |—> limIbssInit
+     |   |   |—> sme_Start
+     |   |   |   |—> csrStart
+     |   |   |   |—> pmcStart
+     |   |   |   |—> WLANSAP_Start
+     |   |   |   |—> sme_set_allowed_action_frames
+     |   |   |—> WLANTL_Start
+     |   |   |   |—> WDA_DS_Register(...,WLANTL_TxComp, WLANTL_RxFrames,WLANTL_GetFrames,WLANTL_ResourceCB,...) // 注册各种回调函数WLANTL_RxFrames
+     |   |   |   |   |—> WDI_DS_Register                                                                        // 最终注册到WDI中
+     |   |—> hdd_post_voss_start_config
+     |   |   |—> sme_HDDReadyInd
+     |   |   |   |—> __limProcessSmeSysReadyInd
+     |   |   |   |   |—> peRegisterTLHandle
+     |   |   |   |   |   |—> WLANTL_RegisterMgmtFrmClient(pvosGCTx, peHandleMgmtFrame)                           // 注册处理管理帧的回调方法
+     |   |   |   |—> csrReady
+     |   |   |   |—> pmcReady
+     |   |   |   |—> rrmReady
+     |   |—> wlan_hdd_cfg80211_update_reg_info
+     |   |—> wlan_hdd_cfg80211_register
+     |   |   |—> wiphy_register
+     |   |—> wlan_hdd_init_channels_for_cc                                                                      // 初始化信道按照国家码
+     |   |   |—> sme_InitChannelsForCC
+     |   |   |   |—> csrInitChannelsForCC
+     |   |   |   |   |—> WDA_SetRegDomain
+     |   |   |   |   |—> csrScanFilterResults
+     |   |—> hdd_open_adapter( pHddCtx, WLAN_HDD_SOFTAP, "wlan.%d", ...)
+     |   |   |—> hdd_alloc_station_adapter
+     |   |   |—> hdd_register_interface
+     |   |—> wlan_hdd_tdls_init
+     |   |—> hddRegisterPmOps
+     |   |—> wlan_hdd_cfg80211_register_frames
+     |   |   |—> sme_register_mgmt_frame_ind_callback(hHal, hdd_indicate_mgmt_frame);                          // sme注册callback到MAC, 接收处理管理帧
+     |   |—> register_inetaddr_notifier
+     |   |—> register_inet6addr_notifier
+
+发送管理帧过程  (proto架构(prima)) 从.mgmt_tx =  wlan_hdd_mgmt_tx,开始
+   wlan_hdd_mgmt_tx
+     |—> __wlan_hdd_mgmt_tx
+     |   |—> wlan_hdd_request_remain_on_channel                                                              // 如果发送的管理帧与当前连接的BSSID不在同一个信道上, 切换到正确的信道上去(ROC), 如果在同一个信道上, 不用执行
+     |   |—> wait_for_completion_interruptible_timeout(...,msecs_to_jiffies(WAIT_CHANGE_CHANNEL_FOR_OFFCHANNEL_TX)); // 等待30ms的超时, 确认切换信道成功
+     |   |—> sme_sendAction                                                                                  //  通过SME将action发送出去
+     |   |   |—> p2pSendAction
+     |   |   |   |—> palSendMBMessage(pMac->hHdd, pMsg);                                                     // This function send a message to MAC, 将数据封装成Message发送给MAC子系统, 由MAC子系统进行帧的头信息的封装, 然后发送数据
+     |   |   |   |   |—> vos_mq_post_message(VOS_MQ_ID_PE, (vos_msg_t *) pMsg);                              // 将msg放入PE的消息队列, pe属于MAC的具体实现.
+   VosMCThread(void * Arg)                                                                                   // VosMCThread会轮询PE队列, 将PE队列的消息取出, 然后执行PE的消息处理方法
+     |—> peProcessMessages( pMacContext, (tSirMsgQ*)pMsgWrapper->pVosMsg);                                   // 处理PE队列中取出的消息.
+     |   |—> limProcessMessages
+     |   |   |—> eWNI_SME_SEND_ACTION_FRAME_IND(limSendP2PActionFrame)                                       // 调用lim模块进行真正的数据发送  LIM是MAC的子模块
+     |   |   |   |—> peFindSessionByBssid
+     |   |   |   |—> palPktAlloc                                                                             // try to allocate some memory: 分配帧空间
+     |   |   |   |—> txFlag |= HAL_USE_BD_RATE2_FOR_MANAGEMENT_FRAME;                                        // 将帧率配置为Rate2, 也就是6Mbps, As these frames need to go at OFDM rates
+     |   |   |   |—> halTxFrame/halTxFrameWithTxComplete                                                     // 调用hal层发送管理帧
+     |   |   |   |   |—> WDA_TxPacket                                                                        // 走到WLAN设备适配层, 由WDA转发到WDI
+     |   |   |   |   |   |—> WLANTL_TxMgmtFrm                                                                // 调用WLAN 传输层, 将管理帧发送到固件
+     |   |   |   |   |   |   |—> WDA_DS_BuildTxPacketInfo                                                    // 按照帧格式生成具体的管理帧
+     |   |   |   |   |   |   |—> WDA_DS_StartXmit                                                            // 发送 (Serialize TX transmit reques to TX thread.) 将WDA_DS_TX_START_XMIT消息放入tlTxMq发送队列, 由TxThread取出,并执行
+   VosTXThread ( void * Arg )                                                                                //  Tx Thread 轮询tlTxMq队列
+     |—> WLANTL_TxProcessMsg
+     |   |—> WDA_DS_TX_START_XMIT(WDA_DS_TxFrames)                                                           // 将刚才hold在WLANTL中的pendingBuffer取出,  and push them to WDI
+     |   |   |—> WLANTL_GetFrames                                                                             // 从WLANTL中取出hold的pendingBuffer
+     |   |   |—> WDI_DS_TxPacket
+     |   |   |   |—> WDTS_TxPacket                                                                           // Send packet to transport layer.
+     |   |   |   |   |—> gDsTrafficStats.txStats                                                             // 进行发送状态统计, 比如统计发送的帧数, 发送是否成功等
+     |   |   |   |   |—> gTransportDriver.xmit  <----> WLANDXE_TxFrame                                       // Trigger frame transmit from host to RIVA, RIVA应该是具体的WiFi芯片架构
+     |   |   |   |   |   |—> dxeTXPushFrame                                                                  // Push TX frame into DXE descriptor and DXE register, Send notification to DXE register that TX frame is ready to transfer
+     |   |   |   |   |   |   |—> wpalWriteRegister                                                           // 写寄存器, 调用DMA进行真正的数据传输, 通过PCI/USB/SDIO发送的RIVA芯片
+     |   |   |   |—> pfnTxComp                                                                               // 回调发送完成, 并回传发送的状态
+     |   |   |   |—> WDI_DS_TxComplete                                                                       // Send notification to transport layer.
+     |   |   |   |   |—> WDTS_CompleteTx                                                                     // Notify completion to  Transport Driver.
+     |   |   |   |   |   |—> gTransportDriver.txComplete  <----->  WLANDXE_CompleteTX)
+     |   |   |   |   |   |   |—> dxeTXCompleteProcessing...WLANDXE_GetFreeTxDataResNumber...                 // 进行各种资源释放和回收.
+ 整个管理帧发送完成, 数据帧的发送也类似.
+
+接收帧的过程, 前面在hdd_start的时候, 已经注册了接收中断, request_irq(gpEnv->rx_irq, wpalRxIsr, IRQF_TRIGGER_HIGH,"wcnss_wlan", gpEnv), 因此, 帧的接受也就从wpalRxIsr中断函数开始.
+   wpalRxIsr
+     |—> gpEnv->rx_isr <-----> dxeRXISR
+     |   |—> wpalDisableInterrupt(DXE_INTERRUPT_RX_READY);                                                    // 禁止接收中断
+     |   |—> wpalPostRxMsg(WDI_GET_PAL_CTX(),dxeCtxt->rxIsrMsg);                                              // 将接收消息post到vos_rx_mq_serialize队列, RxThread会取出消息执行
+   VosRXThread ... dxeCtxt->rxIsrMsg.callback  <------>   dxeRXEventHandler
+   dxeRXEventHandler                                                                                          // 此时已经出了中断处理函数
+     |—> dxeRXFrameRefillRing(&dxeCtxt->dxeChannel[WDTS_CHANNEL_RX_LOW_PRI]/&dxeCtxt->dxeChannel[WDTS_CHANNEL_RX_HIGH_PRI]);                        // 从DMA中读取数据
+     |   |—> dxeRXFrameSingleBufferAlloc                                                                      // 分配内存并读取数据
+     |—> dxeRXFrameReady
+     |   |—> dxeRXFrameRouteUpperLayer                                                                        // 读取并处理数据包
+     |   |   |—> wpalUnlockPacket
+     |   |   |   |—> itReturnOSPktAddrFromDevice                                                               // 
+     |   |   |   |   |—> dma_unmap_single( wcnss_device, (dma_addr_t)addr, size, DMA_FROM_DEVICE )             // 从设备上解除内存映射, 获取DMA数据, 否则,设备会占用这块内存
+     |   |   |—> dxeRXFrameRefillRing                                                                          // 循环读取 DMA中的数据包, 直到DMA Channel中的数据读取完成.
+     |   |   |—> dxeCtxt->rxReadyCB  <----->  WDTSCb.rxFrameReadyCB <-----> WDTS_RxPacket                      // 向上解包执行
+     |   |   |   |—> pClientData->receiveFrameCB <----->  pfnRxPacketCallback                                  // 调用在WDA_DS_Register->WDI_DS_Register的时候传入的pfnRxPacketCallback
+     |   |   |   |   |—> WLANTL_RxFrames
+     |   |   |   |   |   |—> WLANTL_ProcessFCFrame                                                             // Flow control frames  收到流控数据帧
+     |   |   |   |   |   |—> WDA_DS_RxAmsduBdFix
+     |   |   |   |   |   |—> WLANTL_HSHandleRXFrame/WLANTL_ReadRSSI                                            // Read RSSI and update, 如果是管理帧, 读取RSSI并更新系统的RSSI
+     |   |   |   |   |   |—> WLANTL_ReadSNR                                                                    // 如果是管理帧, 读取SNR信息.
+     |   |   |   |   |   |—> pTLCb->tlMgmtFrmClient.pfnTlMgmtFrmRx  <-----> peHandleMgmtFrame                  // 将管理帧转发到MAC层进行处理
+     |   |   |   |   |   |   |—> sysBbtProcessMessageCore
+     |   |   |   |   |   |   |   |—> limIsDeauthDiassocForDrop
+     |   |   |   |   |   |   |   |—> limPostMsgApi                                                             // Post the message to PE Queue, 然后MainThread接管执行
+     |   |   |   |   |   |   |   |   |—> peProcessMessages —> limMessageProcessor -> limProcessMessages --> case SIR_BB_XPORT_MGMT_MSG:
+     |   |   |   |   |   |   |   |   |   |—> limHandle80211Frames
+     |   |   |   |   |   |   |   |   |   |   |—> __limHandleBeacon / limProcessProbeRspFrameNoSession / limProcessAuthFrameNoSession
+     |   |   |   |   |   |   |   |   |   |   |—> limCheckMgmtRegisteredFrames
+     |   |   |   |   |   |   |   |   |   |   |—> limProcessAssocRspFrame / limProcessAssocRspFrame / limProcessProbeReqFrame_multiple_BSS / limProcessProbeRspFrame / __limHandleBeacon
+     |   |   |   |   |   |   |   |   |   |   |—> limProcessActionFrame
+     |   |   |   |   |   |   |   |   |   |   |   |—>__limProcessAddTsReq / __limProcessAddTsRsp / __limProcessDelTsReq / __limProcessQosMapConfigureFrame
+     |   |   |   |   |   |   |   |   |   |   |   |—> limSendSmeMgmtFrameInd                                     // Forward to the SME to HDD to wpa_supplicant
+     |   |   |   |   |   |   |   |   |   |   |   |   |—> pMac->mgmt_frame_ind_cb <----> hdd_indicate_mgmt_frame
+     |   |   |   |   |   |   |   |   |   |   |   |   |   |—> __hdd_indicate_mgmt_frame
+     |   |   |   |   |   |   |   |   |   |   |   |   |   |   |—>  cfg80211_rx_mgmt                              // 调用cfg80211接口, 将frame发送到wpa_supplicant
+     |   |   |   |   |   |—> tlSTAFsm[pClientSTA->tlState].pfnSTATbl[wSTAEvent]; <--->  WLANTL_STARxAuth/WLANTL_STARxConn/WLANTL_STARxDisc  // 数据帧的接收, 不同的状态不同的处理, conn状态只接收EPOL或WAPI的帧,Authed状态可以接收所有的数据帧
+     |   |   |   |   |   |   |—> WLANTL_STARxConn
+     |   |   |   |   |   |   |   |—> pClientSTA->pfnSTARx  <---->  hdd_rx_packet_cbk
+     |   |   |   |   |   |   |   |   |—>rxstat = netif_rx(skb) / netif_rx_ni(skb)                                // 发送到os网络子系统
+     |   |   |   |   |   |   |—> WLANTL_STARxAuth
+     |   |   |   |   |   |   |   |—> pClientSTA->pfnSTARx  <---->  hdd_rx_packet_cbk
+     |   |   |   |   |   |   |   |   |—>rxstat = netif_rx(skb) / netif_rx_ni(skb)                                // 发送到os网络子系统
+     |   |   |   |   |—> gDsTrafficStats.rxStats                                                                 // 统计状态更新
+     |—> wpalEnableInterrupt(DXE_INTERRUPT_RX_READY);                                                            // 处理完成数据之后,重新使能中断, 接收新的数据.
+接收数据过程完成.
+
+4.  发送数据帧的过程 ...
+
+
+
+
+     
+
 
 scan过程：
 
@@ -455,18 +1038,6 @@ scan过程：
 1. 通过telnet发送http请求的方式，同时可能也可以发送其他请求，没有深入研究
    telent baidu.com 80
    GET / HTTP/1.1
-
-2. WDI 是 cpu与wlan固件进行通信的接口
-   WDI通常会通过SMD发送消息给fimeware，然后并且从firmware中接受消息。
-   在WDI初始化时候，会设置callback到smd中
-   wctsCBs.wctsNotifyCB      = WDI_NotifyMsgCTSCB;
-   wctsCBs.wctsNotifyCBData  = &gWDICb;
-   wctsCBs.wctsRxMsgCB       = WDI_RXMsgCTSCB;
-   wctsCBs.wctsRxMsgCBData   = &gWDICb;
-
-
-
-
 
 
 2016-06-04
@@ -542,15 +1113,15 @@ The ANQP forms the basis for 802.11u, an amendment to the IEEE 802.11 set of pro
       .... .0..  Last or Unfragmented frames
       .... ..0.  Not an Exit from the Distribution System
       .... ...1  To the Distributions System
-    (2). AP收到PowerManagement帧之后，应该会送ACK，关于ACK中的Power Management Bit是1还是0,暂时没有确认到，需要有机会确认一下。不过根据规范,
-    
-    The Power Management field is reserved in all frames transmitted by the AP.
-       应该在ACK中不会标识这种信息。
+    (2). AP收到PowerManagement帧之后，应该会送ACK，ACK中的Power Management Bit为0,根据规范和抓包可以知道。
+        The Power Management field is reserved in all frames transmitted by the AP， ACK中不会标识这种信息。
+        因此ACK确认就OK了。
     (3). STA通过Beacon Interval计算Listen Interval，通过关联请求帧（Association Requist）告知接入点（一般侦听间隔为10个Beacon时间时间，即1000ms, 不过在qcom的driver配置上，这个值默认为1,也就是100ms）。 Listen Interval, 也就是station休眠的时间，多长时间唤醒一次接受beacon帧， 查看是否有自己缓存的数据。
-    基于电源状态位变化的报文接收（由PowerSave状态进入Awake状态）、使用PS-Poll（在PS状态下通过Beacon帧得知AP处有缓存报文）报文接收.
+    (4). STA 在Listen Interval的时候会醒来, 接收Beacon frame, 然后检查Beacon的TIM Element, 如果AP有缓存STA的消息, 那么TIM Element的Bitmap control字段中这个STA的bit会被标记为1, 否则为0. 关于当前自己的是哪一个bitmap位, 是通过AID来觉定的, 这个AID是在连接AP的时候, AP分配并通过Association Response给STA的.
+2. 基于电源状态位变化的报文接收（由PowerSave状态进入Awake状态）、使用PS-Poll（在PS状态下通过Beacon帧得知AP处有缓存报文）报文接收.
     AP为STA缓存帧，设定传输指示映射TIM中与STA的AID对应的位，通过Beacon发送.
-    (4). STA在侦听期间通过Beacon帧，发现有为自己缓存的帧，则进入Awake状态并通过发送PS-Poll帧，请求AP处缓存的帧。
-    (5). 每一个PS-Poll帧只能请求一个缓存的数据帧，通过More data位获知是否还有缓存的帧，如果没有则进入Sleep状态
+    (1). STA在侦听期间通过Beacon帧，发现有为自己缓存的帧，则进入Awake状态并通过发送PS-Poll帧，请求AP处缓存的帧。
+    (2). 每一个PS-Poll帧只能请求一个缓存的数据帧，通过More data位获知是否还有缓存的帧，如果没有则进入Sleep状态
 
 2. IEEE80211E APSD电源管理(Automatic Power Save Deliver)
     • STAs do not use PS-Poll frames to retrieve buffered data
@@ -571,7 +1142,6 @@ The ANQP forms the basis for 802.11u, an amendment to the IEEE 802.11 set of pro
     A-MPDU
     与A-MSDU不同的是，A-MPDU聚合的是经过802.11报文封装后的MPDU，这里的MPDU是指经过802.11封装过的数据帧。通过一次性发送若干个MPDU，减少了发送每个802.11报文所需的PLCPPreamble、PLCPHeader，从而提高系统吞吐量。
 
-
 2016.6.28
    关于隐藏SSID
    通常情况下我们的扫描分为被动扫描(Listen Beacon)和主动扫描(send broadcast probe request).
@@ -582,24 +1152,748 @@ The ANQP forms the basis for 802.11u, an amendment to the IEEE 802.11 set of pro
 
 2016.6.24
 
-  ConnectivityService
-  ConnectivityService控制着整个网络的所有的可对外连接的服务设备，比如wlan,有线网卡，数据网络，蓝牙网络。具体系统使用那个接口对外通信都由connectivityService进行控制。
+    ConnectivityService
+    ConnectivityService控制着整个网络的所有的可对外连接的服务设备，比如wlan,有线网卡，数据网络，蓝牙网络。具体系统使用那个接口对外通信都由connectivityService进行控制。
+    
+    NetworkFactory
+    Request
+    Network
+    NetworkAgent
+
+    每个网络模块在启动的时候向ConnectivitySerivce注册NetworkFactory，会接受到ConnectivitySerivce的具体request请求，包括default的和app注册的。NetworkFactory接受到请求之后判断自己是否符合请求的条件，如果符合，则需要建立Network，建立Network需要向ConnectivityService注册NetworkAgent， 此时， ConnectivityService建立Network.
 
   1.  NetworkFactory
-  每个具体的硬件接口通过NetworkFactory和NetworkAgent与ConnectivityService进行沟通。
-  NetworkFactory， 顾名思义，就是网络工厂，每个网络工厂可以产生多个NetworkAgent，也就是可以产生多个具体的网络接口，根据不同的请求来建立不同的连接。比如数据接口就有彩信接口，数据上网接口，LTE网络接口，当有APP需要请求彩信数据的时候，数据网络的NetworkFactory就会建立一个NetworkAgent，注册到ConnectivityService
+     每个具体的硬件接口通过NetworkFactory和NetworkAgent与ConnectivityService进行沟通。
+     NetworkFactory， 顾名思义，就是网络工厂，每个NetworkFactory可以产生多个NetworkAgent，也就是可以产生多个具体的网络(Network)，根据不同的请求来建立不同的连接。比如数据接口就有彩信接口，数据上网接口，LTE网络接口，当有APP需要请求彩信数据的时候，数据网络的NetworkFactory就会建立一个NetworkAgent，注册到ConnectivityService, NetworkAgent注册的时候，这个Network会被创建，并分配一个Network id。
   2. requestNetwork
-  当ConnectivytService中有request请求的时候, 会将request发送给每一个NetworkFactory评估，是否对这个request进行处理，比如建立连接等。关于这个NetworkFactory是否对这个request进行处理的主要依据是分数。分数是指的当前接受这个请求的网络的分数。所以，每个NetworkFactory都会记录所有的NetworkRequest, request的分数一旦发送到NetworkFactory中，就不会被改变了，没有相关接口可以改变这个分数
+     当ConnectivytService中有request请求的时候, 会将request发送给每一个NetworkFactory评估，是否对这个request进行处理，比如建立连接等。关于这个NetworkFactory是否对这个request进行处理的主要依据是分数。分数是指的当前接受这个请求的网络的分数。所以，每个NetworkFactory都会记录所有的NetworkRequest, request的分数一旦发送到NetworkFactory中，就不会被改变了，没有相关接口可以改变这个分数
      requestNetwork分为两种类型，一种情况是LISTEN, 一种是REQUEST，LISTEN是监听某个Network的变化, Requst是请求某种类型的网络，需要的参数不相同
      (1). Listen, 注册接收匹配request请求的所有网络的通知, networkCallback会一直被调用直到这个应用退出。
      public void registerNetworkCallback(NetworkRequest request, NetworkCallback networkCallback);
      (2). Request, 注册
+
      public void requestNetwork(NetworkRequest request, NetworkCallback networkCallback);
   requestNetwork的时候ConnectivityService所进行的操作
      (1). 要建立一个NetworkRequestInfo的对象来保存request的信息，比较重要的就是mBinder和messager两个信息，mBinder是由ConnectivityManager在调用ConnectivityService的时候创建的APP端的BBinder对象，ConnectivityService拿到的是Remote Binder的对象，也就是BpBinder, 这个的主要作用的用来监听APP的进程退出的信息， 当进程退出的时候，Binder对象销毁，BpBinder通过linkToDeath之后，可以收到binderDied回调。
      messager的作用主要是用户讲network变化的信息通知到APP。
      (2). 当handleRegisterNetworkRequest时候，会调用rematchAllNetworksAndReqests, 也就是为刚刚添加的request找到一个合适的NetworkAgent, 如果当前的NetworkAgent没有匹配的，那么需要将这个request发送到NetworkFactory进行评估，如果某一个NetworkFactory接受这个requst，那么将会建立网络连接并注册NetworkAgent。
      (3). 除了使用Messager的方式，还有一种PendingIntent的方式可以接受网络状态的变化，通过requestNetwork(, PendingIntent)的方式调用, 最终在ConnectivityService中会调用PendingIntent进行send.
+
+3. NetworkAgent
+
+    当NetworkFactory收到request请求之后，根据条件判断自己是否接受这儿请求，如果接受，则建立与之对应的网络连接，比如电话会简历彩信的连接，　并向ConnectivityService注册这个网络，也就是NetworkAgent，Connectivity会在registNetworkAgent的时候，net Network. 同时创建NetworkAgentInfo, 将创建的Network以及其他信息放到NetworkAgentInfo里面。
+    通过networkAgent， NetworkFactory可以更新sendLinkProperties， sendNetworkInfo， sendNetworkCapabilities，sendNetworkScore, 所有的这些方法，都会涉及到网络的重新选择。
+    尤其是sendNetworkInfo中，如果是第一次变为连接状态，需要通过netd创建physicNetwork，主要是添加策略路由使用，同时将路由信息更新到netd, netd负责将这些信息添加到策略路由中。
+
+    同时可以收到ConnectivitySerivce发送过来的各种管理事件:
+    CMD_REPORT_NETWORK_STATUS,
+    CMD_SAVE_ACCEPT_UNVALIDATED,
+
+4. 当我们通过networkAgent将network状态发送给ConnectivityService的时候，包括sendNetworkInfo/sendLinkProperties 等等事件的时候，Connectivity将会检查所有的NetworkRequest，并根据分数进行重新匹配合适的网络。
+
+5. 关于ipPacketOffload, 从代码上看qcom的driver已经支持ip packet offload技术， 不过根据Android提供的接口，这个offload packet十分有限，仅仅是KeepAlive的包，并且要小于1536-14个字节，也就是一个ip包的大小。另外android规定只能是4500这个端口的数据。
+
+
+
+
+2016.7.5
+   关于netlink
+   netlink是应用层与kernel之间通信的方式，当然，也可以用于进程间通信，可以自己实现具体的netlink通信，也可以使用libnl.
+   自己实现netlink的操作的方式比较简单。
+目前kernel里面已经固定的类型有
+#define NETLINK_ROUTE 0
+#define NETLINK_UNUSED 1
+#define NETLINK_USERSOCK 2
+/* WARNING: DO NOT EDIT, AUTO-GENERATED CODE - SEE TOP FOR INSTRUCTIONS */
+#define NETLINK_FIREWALL 3
+#define NETLINK_SOCK_DIAG 4
+#define NETLINK_NFLOG 5
+#define NETLINK_XFRM 6
+/* WARNING: DO NOT EDIT, AUTO-GENERATED CODE - SEE TOP FOR INSTRUCTIONS */
+#define NETLINK_SELINUX 7
+#define NETLINK_ISCSI 8
+#define NETLINK_AUDIT 9
+#define NETLINK_FIB_LOOKUP 10
+/* WARNING: DO NOT EDIT, AUTO-GENERATED CODE - SEE TOP FOR INSTRUCTIONS */
+#define NETLINK_CONNECTOR 11
+#define NETLINK_NETFILTER 12
+#define NETLINK_IP6_FW 13
+#define NETLINK_DNRTMSG 14
+/* WARNING: DO NOT EDIT, AUTO-GENERATED CODE - SEE TOP FOR INSTRUCTIONS */
+#define NETLINK_KOBJECT_UEVENT 15
+#define NETLINK_GENERIC 16
+#define NETLINK_SCSITRANSPORT 18
+#define NETLINK_ECRYPTFS 19
+/* WARNING: DO NOT EDIT, AUTO-GENERATED CODE - SEE TOP FOR INSTRUCTIONS */
+#define NETLINK_RDMA 20
+#define NETLINK_CRYPTO 21
+#define NETLINK_INET_DIAG NETLINK_SOCK_DIAG
+#define MAX_LINKS 32
+    这些都已经有特殊用途，不可以再使用
+userspace: 
+        sockfd = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_TEST);  // NETLINK_TEST 自定义类型，
+        /* 设置本地端点并绑定，用于侦听 */
+        bzero(&src_addr, sizeof(src_addr));
+        src_addr.nl_family = AF_NETLINK;
+        src_addr.nl_pid = getpid();
+        src_addr.nl_groups = 0; //未加入多播组
+        bind(sockfd, (struct sockaddr*)&src_addr, sizeof(src_addr));
+        /* 构造目的端点，用于发送 */
+        bzero(&dst_addr, sizeof(dst_addr));
+        dst_addr.nl_family = AF_NETLINK;
+        dst_addr.nl_pid = 0; // 表示内核
+        dst_addr.nl_groups = 0; //未指定接收多播组
+        /* 构造发送消息 */
+        nlh = malloc(NLMSG_SPACE(MAX_PAYLOAD));
+        nlh->nlmsg_len = NLMSG_SPACE(MAX_PAYLOAD); //保证对齐
+        nlh->nlmsg_pid = getpid();  /* self pid */
+        nlh->nlmsg_flags = 0;
+        nlh->nlmsg_type = NLMSG_GETECHO;
+        strcpy(NLMSG_DATA(nlh), argv[1]);
+        iov.iov_base = (void *)nlh;
+        iov.iov_len = nlh->nlmsg_len;
+        msg.msg_name = (void *)&dst_addr;
+        msg.msg_namelen = sizeof(dst_addr);
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+
+        sendmsg(sockfd, &msg, 0); // 发送
+        /* 接收消息并打印 */
+        memset(nlh, 0, NLMSG_SPACE(MAX_PAYLOAD));
+        recvmsg(sockfd, &msg, 0);
+
+
+kernel:
+
+    netlinkfd = netlink_kernel_create(&init_net, NETLINK_TEST, 0, kernel_receive, NULL, THIS_MODULE);
+
+
+int send_to_user(char *info) //发送到用户空间
+{
+        int size;
+        struct sk_buff *skb;
+        unsigned char *old_tail;
+        struct nlmsghdr *nlh; //报文头
+
+        int retval;
+
+        size = NLMSG_SPACE(strlen(info)); //报文大小
+        skb = alloc_skb(size, GFP_ATOMIC); //分配一个新的套接字缓存,使用GFP_ATOMIC标志进程不>会被置为睡眠
+
+        //初始化一个netlink消息首部
+        nlh = nlmsg_put(skb, 0, 0, 0, NLMSG_SPACE(strlen(info))-sizeof(struct nlmsghdr), 0);
+        old_tail = skb->tail;
+        memcpy(NLMSG_DATA(nlh), info, strlen(info)); //填充数据区
+        nlh->nlmsg_len = skb->tail - old_tail; //设置消息长度
+
+        //设置控制字段
+        NETLINK_CB(skb).pid = 0;
+        NETLINK_CB(skb).dst_group = 0;
+
+        printk(KERN_DEBUG "[kernel space] skb->data:%s\n", (char *)NLMSG_DATA((struct nlmsghdr *)skb->data));
+
+        //发送数据
+        retval = netlink_unicast(netlinkfd, skb, user_process.pid, MSG_DONTWAIT);
+        printk(KERN_DEBUG "[kernel space] netlink_unicast return: %d\n", retval);
+        return 0;
+}
+
+void kernel_receive(struct sk_buff *__skb) //内核从用户空间接收数据
+{
+        struct sk_buff *skb;
+        struct nlmsghdr *nlh = NULL;
+
+        char *data = "This is eric's test message from kernel";
+
+        printk(KERN_DEBUG "[kernel space] begin kernel_receive\n");
+        skb = skb_get(__skb);
+        if(skb->len >= sizeof(struct nlmsghdr)){
+                nlh = (struct nlmsghdr *)skb->data;
+                if((nlh->nlmsg_len >= sizeof(struct nlmsghdr))
+                                && (__skb->len >= nlh->nlmsg_len)){
+                        user_process.pid = nlh->nlmsg_pid;
+                        printk(KERN_DEBUG "[kernel space] data receive from user are:%s\n", (char *)NLMSG_DATA(nlh));
+                        printk(KERN_DEBUG "[kernel space] user_pid:%d\n", user_process.pid);
+                        send_to_user(data);
+                }
+        }else{
+                printk(KERN_DEBUG "[kernel space] data receive from user are:%s\n",(char *)NLMSG_DATA(nlmsg_hdr(__skb)));
+                send_to_user(data);
+        }
+        kfree_skb(skb);
+}
+
+
+    2. 使用libnl的API进行通信
+
+自定义类型的操作
+       struct nl_sock sk = nl_socket_alloc(void);
+       nl_connect(sk, NETLINK_ROUTE); // NETLINK_ROUTE or NETLINK_TEST ...
+       msg = nlmsg_alloc();
+       struct nlmsghdr *nlmsg_put(struct nl_msg *n, uint32_t pid, uint32_t seq,int type, int payload, int flags)
+       err = nl_send_auto_complete(nl_handle, msg);
+       int res = nl_recvmsgs(nl_handle, cb);
+
+
+generic类型的操作
+       struct nl_sock sk = nl_socket_alloc_cb(struct nl_cb *cb)
+       genl_connect(sk);
+       如果都是用generic的情况下，kernel里面需要注册
+static struct genl_family nl80211_fam = {
+	.id = GENL_ID_GENERATE,	/* don't bother with a hardcoded ID */
+	.name = "nl80211",	/* have users key off the name instead */
+	.hdrsize = 0,		/* no private header */
+	.version = 1,		/* no particular meaning now */
+	.maxattr = NL80211_ATTR_MAX,
+	.netnsok = true,
+	.pre_doit = nl80211_pre_doit,
+	.post_doit = nl80211_post_doit,
+};
+       genl_register_family_with_ops(&nl80211_fam, ...); // 注册nl80211 ops.
+       static struct genl_multicast_group nl80211_scan_mcgrp = {
+	   .name = "scan",
+       };
+       err = genl_register_mc_group(&nl80211_fam, &nl80211_scan_mcgrp); // 在nl80211 ops中注册 scan multicast.
+       
+应用层也需要注册
+       family = genl_ctrl_resolve(global->nl, "nl80211");  //获取generic里面的nl80211 family, family在消息发送和接受的时候都要将family id填充到消息头中。
+       genl_ctrl_resolve 是需要想kernel的generic protocol里面查询所有注册的generic family， 然后找到nl80211的family,获取family id.
+
+       关于组播/广播消息的接受
+       global->nl_event = nl_create_handle(global->nl_cb, "event");
+       ret = nl_get_multicast_id(global, "nl80211", "scan");
+CTRL_CMD_GETFAMILY的方式
+       struct family_data res = { group("scan"), -ENOENT };
+       msg = nlmsg_alloc();
+       genlmsg_put(msg, 0, 0, genl_ctrl_resolve(global->nl, "nlctrl"), 0, 0, CTRL_CMD_GETFAMILY, 0)
+       nla_put_string(msg, CTRL_ATTR_FAMILY_NAME, family("nl80211")))
+       send_and_recv(global, global->nl, msg, family_handler, &res); // 在family_handler中将我们需要的group找到并获取起ID
+       ret = nl_socket_add_membership(global->nl_event, group_id);
+       setsockopt(sk->s_fd, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &group_id, sizeof(group_id));
+       然后可以通过sk->s_fd进行scan group消息的接受。
+
+generic消息发送
+      	struct nl_msg *msg;
+
+	msg = nlmsg_alloc();
+	genlmsg_put(msg, 0(pid: to kernel), 0(seq), drv->global->nl80211_id(family), 0(hdrlen), flags, cmd, 0(version));
+        err = nl_send_auto_complete(nl_handle, msg);
+
+generic 消息接受:
+        struct nl_cb *cb = nl_cb_alloc(NL_CB_DEFAULT); //申请callback,并且把所有的callback都设为默认的callback，在libnl中, 所有种类的NL_CB_DEFAULT都为NULL, 所以，相当与所有的callback都没有设置，因此消息接受之后不会有任何信息。
+        i.e.: struct nl_cb *cb = nl_cb_alloc(NL_CB_VERBOSE); // 申请nlcallback, 并将所有类型的callback都设置为默认的NL_CB_VERBOSE的callback， NL_CB_VERBOSE在libnl中有定义。
+        
+	nl_cb_err(cb, NL_CB_CUSTOM, error_handler, &err);    //设置error的callbak为自定义的error_handler
+	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, finish_handler, &err); //设置finish的 callback为自定义的finish_handler
+	nl_cb_set(cb, NL_CB_ACK, NL_CB_CUSTOM, ack_handler, &err);
+
+        nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, valid_handler, valid_data); //设置接受到有效消息的时候的callback为自定义的valid_handler
+        int res = nl_recvmsgs(nl_handle, cb);
+        这个地方cb的作用就是将返回的不同结果调用不同的callback，这些回调将会在nl_recvmsgs中进行回调， 我们主要需要的是type是NL_CB_VALID的callbac
+
+2016.7.6
+
+
+1.  /sys/kernel/ipv4/
+    tcp_delack_seg      tcp_rmem_max        tcp_use_userconfig  tcp_wmem_max
+    tcp_rmem_def        tcp_rmem_min        tcp_wmem_def        tcp_wmem_min
+
+    /proc/sys/net/ipv4/tcp_wmem
+    /proc/sys/net/ipv4/tcp_rmem
+
+    这两个目录或者文件里面的ipv4的内容是相同的，wmem是指的写的内存的大小，rmem是指的读内存的大小
+其他相关配置目录
+    /sys/class/net/wlan0 设备相关配置，比如mtu, address, speed等
+
+    /proc/sys/net/
+    bridge            ipv4              netfilter         unix
+    core              ipv6              nf_conntrack_max
+
+    /proc/<pid>/net
+
+
+2016.7.7 
+    NetworkStatsService
+    收集并坚持详细的网络信息统计， 并提供数据给其他系统服务使用
+    xt == xtable-addon  (iptables的插件)
+    
+/proc/net/xt_qtaguid/
+ctrl:   控制接口，几个比较重要的命令
+        "t %d %" PRIu64 " %d", sockfd, kTag, uid  给某个socket打上kTag标志，其流量统计到uid上。
+        "u %d", sockfd    // untag sockfd
+        "d %" PRIu64 " %d", kTag, uid    删除kTag从uid上
+        "s %d %d", counterSetNum, uid    uid切换前后台
+
+iface_stat_all： 这个是包括IP层所有流量的统计数据
+root@scorpio:/ # cat /proc/net/xt_qtaguid/iface_stat_all                       
+wlan0 1 0 0 0 0 26981860 26157 1298443 14590
+rmnet_data7 1 0 0 0 0 669 9 881 12
+dummy0 1 0 0 0 0 0 0 210 3
+lo 1 0 0 0 0 97 1 97 1
+
+
+iface_stat_fmt：  tcp和UDP的流量统计。
+cat /proc/net/xt_qtaguid/iface_stat_fmt                                        <
+ifname total_skb_rx_bytes total_skb_rx_packets total_skb_tx_bytes total_skb_tx_packets rx_tcp_bytes rx_tcp_packets rx_udp_bytes rx_udp_packets rx_other_bytes rx_other_packets tx_tcp_bytes tx_tcp_packets tx_udp_bytes tx_udp_packets tx_other_bytes tx_other_packets
+wlan0 26868288 22176 1091875 14536 25750000 19301 1108264 2709 10024 166 1082976 14414 7303 104 1596 18
+rmnet_data7 669 9 785 12 0 0 49 1 620 8 0 0 113 2 672 10
+dummy0 0 0 168 3 0 0 0 0 0 0 0 0 0 0 168 3
+lo 97 1 97 1 0 0 0 0 97 1 0 0 0 0 97 1
+
+stats: 每个UID的前台流量和后台流量统计， 
+比较重要的列的意义, acct_tag_hex, 所有socket的流量都会统计到tag = 0上, tag = 0 分为前台和后台，通过cnt_set区别。打上tag标记的，这个socket的流量会统计到这个tag上，这个tag也分前台和后台，同时这个tag上的流量也会被加到tag=0的统计上。
+这种tag的方式通常是给下载管理，播放器用的，下载管理会将下载的流量统计给发起请求的APP
+
+
+idx iface acct_tag_hex       uid_tag_int  cnt_set   rx_bytes rx_packets tx_bytes tx_packets rx_tcp_bytes rx_tcp_packets rx_udp_bytes rx_udp_packets rx_other_bytes rx_other_packets tx_tcp_bytes tx_tcp_packets tx_udp_bytes tx_udp_packets tx_other_bytes tx_other_packets
+32  wlan0 0x0                10108        0         2515487 1795 66564 1077 2515487 1795 0 0 0 0 66564 1077 0 0 0 0
+33  wlan0 0x0                10108        1         15873781 11043 333995 6699 15873781 11043 0 0 0 0 333995 6699 0 0 0 0
+36  wlan0 0x165d0b7b00000000 10108        0         746 3 646 4 746 3 0 0 0 0 646 4 0 0 0 0
+37  wlan0 0x165d0b7b00000000 10108        1         315406 218 9698 219 315406 218 0 0 0 0 9698 219 0 0 0 0
+38  wlan0 0x289deec200000000 10108        0         2463178 1681 39626 902 2463178 1681 0 0 0 0 39626 902 0 0 0 0
+39  wlan0 0x289deec200000000 10108        1         15481327 10701 303206 6341 15481327 10701 0 0 0 0 303206 6341 0 0 0 0
+40  wlan0 0x60e6402400000000 10108        0         20041 29 7893 36 20041 29 0 0 0 0 7893 36 0 0 0 0
+41  wlan0 0x60e6402400000000 10108        1         51084 63 11363 70 51084 63 0 0 0 0 11363 70 0 0 0 0
+42  wlan0 0xacdc495f00000000 10108        0         0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+43  wlan0 0xacdc495f00000000 10108        1         456 3 481 4 456 3 0 0 0 0 481 4 0 0 0 0
+44  wlan0 0xe8332b4100000000 10108        0         1       4220 15 3750 20 14220 15 0 0 0 0 3750 20 0 0 0 0
+45  wlan0 0xe8332b4100000000 10108        1         0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+
+2016.7.7
+
+    时延带宽积是 带宽＊传播时延， 而传播时延也就是信道长度除以电磁波在信道里的速率。
+
+    含义就是如果以最大的带宽发送数据，然后第一个比特到达目的地的时候，发送的比特数量，而这些比特数量此时都在信道里传输，也就是某时链路上可容纳的最大的比特数。你用1s内发送的数据量减去到达的数据量也对，但是你这样做并不一定是以最大的带宽进行发送。
+
+2016.7.8
+
+1. 滑动窗口:
+    窗口的初始大小是在SYN阶段确立的，后面会随着接收端的大小进行改变。
+    发送断在发送SYN的时候，会发送一个窗口大小给接收端，告诉Server，Client端的初始window大小，这个值通过/proc/sys/net/ipv4/tcp_default_init_rwnd进行修改，同时，如果路由设置了initrwnd， 
+    sudo ip route change default via 192.168.1.1 dev eth0  proto static initrwnd 10
+    那么会使用路由配置的initrwnd, 同时，路由也可以配置cwnd的初始大小
+    sudo ip route change default via 192.168.1.1 dev eth0  proto static initcwnd 10
+    如果在SYN阶段，window大小是不允许调整的，根据initrwnd的大小进行设置，如果超过65535， 那么就是65535,在其他阶段，如果超过65535, tcp里面增加了一个window size scaling factor的字段，所以计算window的大小需要用window * scalingfator进行计算， 后面的接受窗口的大小linux会进行动态调整，调整算法可以看tcp_output.c中的tcp_select_window方法， 但是最大大小不会超过/proc/sys/net/ipv4/tcp_rmem的最大值，比如，在virgo上这个值会调整到2MByte
+    cat /proc/sys/net/ipv4/tcp_rmem
+    524288   1048576	2097152
+
+    这个地方rmem_default的值也会影响初始的window大小，在tcp_rmem_default和tcp_default_init_rwnd中选择一个最小值
+
+    通过kernel源代码可以看到
+	space = max_t(u32, sysctl_tcp_rmem[2], sysctl_rmem_max);
+	space = min_t(u32, space, *window_clamp);
+	while (space > 65535 && (*rcv_wscale) < 14) {
+		space >>= 1;
+		(*rcv_wscale)++;
+	}
+
+	/* Set the clamp no higher than max representable value */
+	(*window_clamp) = min(65535U << (*rcv_wscale), *window_clamp);
+     window_clamp 是Maximal window to advertise， 也就是说，window的最大大小在init_window的时候会确定下来，可以参考tcp_select_initial_window（tcp_output.c）中确定下来，如果没有启用tcp_scaling_window的选项，那么，最大值为65535, 如果启动了，最大值为max_t(u32, sysctl_tcp_rmem[2], sysctl_rmem_max);中的最大值。
+
+    TCP使用了Zero Window Probe技术，缩写为ZWP，也就是说，发送端在窗口变成0后，会发ZWP的包给接收方，让接收方来ack他的Window尺寸，一般这个值会设置成3次，每次大约30-60秒（不同的实现可能会不一样）。如果3次过后还是0的话，有的TCP实现就会发RST把链接断了。
+
+
+2. 关于tcp_rmem和tcp_window的关系
+
+    Receive buffer
+    接收缓存sk->sk_rcvbuf分为两部分：
+    （1） network buffer，一般占3/4，这部分是协议能够使用的。
+    （2）application buffer，一般占1/4。
+    我们在计算连接可用接收缓存的时候，并不会使用整个的sk_rcvbuf，防止应用程序读取数据的速度比网络数据包到达的速度慢时，接收缓存被耗尽的情况。
+
+    初始的接收窗口的取值(mss的整数倍)：
+   （1）先考虑路由缓存中的RTAX_INITRWND
+   （2）在考虑系统默认的TCP_DEFAULT_INIT_RCVWND(10)
+   （3）最后考虑min(3/4 * sk_rcvbuf, window_clamp)，如果这个值很低
+    窗口扩大因子的取值：
+    接收窗口取最大值为max(tcp_rmem[2], rmem_max)，本连接接收窗口的最大值为
+    min(max(tcp_rmem[2], rmem_max), window_clamp)。
+    那么我们需要多大的窗口扩大因子，才能用16位来表示最大的接收窗口呢？
+    如果接收窗口的最大值受限于tcp_rmem[2] = 4194304，那么rcv_wscale = 7，窗口扩大倍数为128。
+
+3. MSS和MTU
+    MTU， 是指Maximum Transmission Unit， 以太网的帧大小是1512byte,去除12byte的帧头， 1500byte就是能够承载的IP包的最大大小，如果IP包超过MTU，ethernet层将无法传输。
+    因此，在IP层就需要根据MTU进行分片
+    IP分片发生在IP层，不仅源端主机会进行分片，中间的路由器也有可能分片，因为不同的网络的MTU是不一样的，如果传输路径上的某个网络的MTU比源端网络的MTU要小，路由器就可能对IP数据报再次进行分片。而分片数据的重组只会发生在目的端的IP层。在IP首部有4个字节是用于分片的，如下图所示。前16位是IP数据报的标识，同一个数据报的各个分片的标识是一样的，目的端会根据这个标识来判断IP分片是否属于同一个IP数据报。中间3位是标志位，其中有1位用来表示是否有更多的分片，如果是最后一个分片，该标志位为0，否则为1。后面13位表示分片在原始数据的偏移，这里的原始数据是IP层收到的传输的TCP或UDP数据，不包含IP首部。
+
+    需要注意的，在分片的数据中，TCP的头只会出现在第一个分片中，如下图所示。因为传输层的数据格式对IP层是透明的，传输层的首部只有在传输层才会有它的作用，IP层不知道也不需要保证在每个分片中都有传输层首部。所以，在网络上传输的数据包是有可能没有传输层首部的。
+    在网络编程中，我们要避免出现IP分片，那么为什么要避免呢？原因是IP层是没有超时重传机制的，如果IP层对一个数据包进行了分片，只要有一个分片丢失了，只能依赖于传输层进行重传，结果是所有的分片都要重传一遍，这个代价有点大。由此可见，IP分片会大大降低传输层传送数据的成功率，所以我们要避免IP分片。
+    对于UDP包，我们需要在应用层去限制每个包的大小，一般不要超过1472字节，即以太网MTU（1500）—UDP首部（8）—IP首部（20）。
+    对于TCP数据，应用层就不需要考虑这个问题了，因为传输层已经帮我们做了。在建立连接的三次握手的过程中，连接双方会相互通告MSS（Maximum Segment Size，最大报文段长度），MSS一般是MTU—IP首部（20）—TCP首部（20），每次发送的TCP数据都不会超过双方MSS的最小值，所以就保证了IP数据报不会超过MTU，避免了IP分片。
+   这两个是相互影响的，MSS是指的最大分片大小。
+   在wireshark中 Fragmented IP protocol 是指的ip层分片
+   TSO (TCP Segmentation Offload) 是一种利用网卡分割大数据包，减小 CPU 负荷的一种技术，也被叫做 LSO (Large segment offload) ，如果数据包的类型只能是 TCP，则被称之为 TSO，如果硬件支持 TSO 功能的话，也需要同时支持硬件的 TCP 校验计算和分散 - 聚集 (Scatter Gather) 功能。
+   GSO, 目前手机上都不支持这两个功能
+   GSO(Generic Segmentation Offload)，它比TSO更通用，基本思想就是尽可能的推迟数据分片直至发送到网卡驱动之前，此时会检查网卡是否支持分片功能（如TSO、UFO）,如果支持直接发送到网卡，如果不支持就进行分片后再发往网卡。这样大数据包只需走一次协议栈，而不是被分割成几个数据包分别走，这就提高了效率。
+   GRO， LRO，是在接收端的处理。
+
+
+4. 拥塞控制
+	为了防止网络的拥塞现象，TCP提出了一系列的拥塞控制机制。最初由V. Jacobson在1988年的论文中提出的TCP的拥塞控制由“慢启动(Slow start)”和“拥塞避免(Congestion avoidance)”组成，后来TCP Reno版本中又针对性的加入了“快速重传(Fast retransmit)”、“快速恢复(Fast Recovery)”算法，再后来在TCP NewReno中又对“快速恢复”算法进行了改进，近些年又出现了选择性应答( selective acknowledgement,SACK)算法，还有其他方面的大大小小的改进，成为网络研究的一个热点。
+	TCP的拥塞控制主要原理依赖于一个拥塞窗口(cwnd)来控制，在之前我们还讨论过TCP还有一个对端通告的接收窗口(rwnd)用于流量控制。窗口值的大小就代表能够发送出去的但还没有收到ACK的最大数据报文段，显然窗口越大那么数据发送的速度也就越快，但是也有越可能使得网络出现拥塞，如果窗口值为1，那么就简化为一个停等协议，每发送一个数据，都要等到对方的确认才能发送第二个数据包，显然数据传输效率低下。TCP的拥塞控制算法就是要在这两者之间权衡，选取最好的cwnd值，从而使得网络吞吐量最大化且不产生拥塞。
+	由于需要考虑拥塞控制和流量控制两个方面的内容，因此TCP的真正的发送窗口=min(rwnd, cwnd)。但是rwnd是由对端确定的，网络环境对其没有影响，所以在考虑拥塞的时候我们一般不考虑rwnd的值，我们暂时只讨论如何确定cwnd值的大小。关于cwnd的单位，在TCP中是以字节来做单位的，我们假设TCP每次传输都是按照MSS大小来发送数据的，因此你可以认为cwnd按照数据包个数来做单位也可以理解，所以有时我们说cwnd增加1也就是相当于字节数增加1个MSS大小。
+	慢启动：最初的TCP在连接建立成功后会向网络中发送大量的数据包，这样很容易导致网络中路由器缓存空间耗尽，从而发生拥塞。因此新建立的连接不能够一开始就大量发送数据包，而只能根据网络情况逐步增加每次发送的数据量，以避免上述现象的发生。具体来说，当新建连接时，cwnd初始化为1个最大报文段(MSS)大小，发送端开始按照拥塞窗口大小发送数据，每当有一个报文段被确认，cwnd就增加1个MSS大小。这样cwnd的值就随着网络往返时间(Round Trip Time,RTT)呈指数级增长，事实上，慢启动的速度一点也不慢，只是它的起点比较低一点而已。我们可以简单计算下：
+	   开始           --->     cwnd = 1
+	   经过1个RTT后   --->     cwnd = 2*1 = 2
+	   经过2个RTT后   --->     cwnd = 2*2= 4
+	   经过3个RTT后   --->     cwnd = 4*2 = 8
+	如果带宽为W，那么经过RTT*log2W时间就可以占满带宽。
+	拥塞避免：从慢启动可以看到，cwnd可以很快的增长上来，从而最大程度利用网络带宽资源，但是cwnd不能一直这样无限增长下去，一定需要某个限制。TCP使用了一个叫慢启动门限(ssthresh)的变量，当cwnd超过该值后，慢启动过程结束，进入拥塞避免阶段。对于大多数TCP实现来说，ssthresh的值是65536(同样以字节计算)。拥塞避免的主要思想是加法增大，也就是cwnd的值不再指数级往上升，开始加法增加。此时当窗口中所有的报文段都被确认时，cwnd的大小加1，cwnd的值就随着RTT开始线性增加，这样就可以避免增长过快导致网络拥塞，慢慢的增加调整到网络的最佳值。
+	上面讨论的两个机制都是没有检测到拥塞的情况下的行为，那么当发现拥塞了cwnd又该怎样去调整呢？
+	首先来看TCP是如何确定网络进入了拥塞状态的，TCP认为网络拥塞的主要依据是它重传了一个报文段。上面提到过，TCP对每一个报文段都有一个定时器，称为重传定时器(RTO)，当RTO超时且还没有得到数据确认，那么TCP就会对该报文段进行重传，当发生超时时，那么出现拥塞的可能性就很大，某个报文段可能在网络中某处丢失，并且后续的报文段也没有了消息，在这种情况下，TCP反应比较“强烈”：
+	1.把ssthresh降低为cwnd值的一半
+	2.把cwnd重新设置为1
+	3.重新进入慢启动过程。
+	从整体上来讲，TCP拥塞控制窗口变化的原则是AIMD原则，即加法增大、乘法减小。可以看出TCP的该原则可以较好地保证流之间的公平性，因为一旦出现丢包，那么立即减半退避，可以给其他新建的流留有足够的空间，从而保证整个的公平性。
+	其实TCP还有一种情况会进行重传：那就是收到3个相同的ACK。TCP在收到乱序到达包时就会立即发送ACK，TCP利用3个相同的ACK来判定数据包的丢失，此时进行快速重传，快速重传做的事情有：
+	1.把ssthresh设置为cwnd的一半
+	2.把cwnd再设置为ssthresh的值(具体实现有些为ssthresh+3)
+	3.重新进入拥塞避免阶段。
+
+5. 优化
+   1. 由此可见，如果我们处于比较稳定的局域网传输，发生丢包的概率很小，我们可以增大MSS来提高传输速率，由IP层来机型分片分装，减少TCP协议的ACK的交互。
+   2. 提高了MSS的同同时，根据kernel的代码可以确定，初始的window大小就等于 default_init_rwnd * MSS, 因此，这个值也增大了，同时要提高tcp_rmem_max的大小，否则这个会限制最大大小。
+   3. cwnd是指的发送端窗口的大小调整，这个地方关系到慢启动算法和避免拥塞算法， kernel里面目前指定的慢启动里面的cwnd为10， 也就是10 × mss = 14600, 也就是相当于15K左右的数据，如果超过15K的数据，需要等第一个ACK返回之后才进行第二个数据的发送， 所以，对于20K-30K的数据不太公平，如果局域网传输，完全可以取消慢启动算法，直接使用滑动窗口协议即可或者使用ip route change 在局域网的数据传输的提高上来。
+   4. 对于SINR和SNR，目前没有接口能够读取，但是我们可知道的是speed, 如果误码率比较高，那么速率会降到很低， 速率降到6Mbps也就意味着干扰或者距离增大，重传率升高。
+
+
+6. 关于Linux中的NAPI功能
+    NAPI 的核心在于：在一个繁忙网络，每次有网络数据包到达时，不需要都引发中断，因为高频率的中断可能会影响系统的整体效率，假象一个场景，我们此时使用标准的 100M 网卡，可能实际达到的接收速率为 80MBits/s，而此时数据包平均长度为 1500Bytes，则每秒产生的中断数目为：
+    80M bits/s / (8 Bits/Byte * 1500 Byte) = 6667 个中断 /s
+    每秒 6667 个中断，对于系统是个很大的压力，此时其实可以转为使用轮询 (polling) 来处理，而不是中断；但轮询在网络流量较小的时没有效率，因此低流量时，基于中断的方式则比较合适，这就是 NAPI 出现的原因，在低流量时候使用中断接收数据包，而在高流量时候则使用基于轮询的方式接收。
+    现在内核中 NIC 基本上已经全部支持 NAPI 功能，由前面的叙述可知，NAPI 适合处理高速率数据包的处理，而带来的好处则是：
+    中断缓和 (Interrupt mitigation)，由上面的例子可以看到，在高流量下，网卡产生的中断可能达到每秒几千次，而如果每次中断都需要系统来处理，是一个很大的压力，而 NAPI 使用轮询时是禁止了网卡的接收中断的，这样会减小系统处理中断的压力
+    数据包节流 (Packet throttling)，NAPI 之前的 Linux NIC 驱动总在接收到数据包之后产生一个 IRQ，接着在中断服务例程里将这个 skb 加入本地的 softnet，然后触发本地 NET_RX_SOFTIRQ 软中断后续处理。如果包速过高，因为 IRQ 的优先级高于 SoftIRQ，导致系统的大部分资源都在响应中断，但 softnet 的队列大小有限，接收到的超额数据包也只能丢掉，所以这时这个模型是在用宝贵的系统资源做无用功。而 NAPI 则在这样的情况下，直接把包丢掉，不会继续将需要丢掉的数据包扔给内核去处理，这样，网卡将需要丢掉的数据包尽可能的早丢弃掉，内核将不可见需要丢掉的数据包，这样也减少了内核的压力
+
+    与最初的 NAPI 相比较，轮询函数的注册有些变化，现在使用的新接口是：
+    void netif_napi_add(struct net_device *dev, struct napi_struct *napi, 
+		    int (*poll)(struct napi_struct *, int), int weight)
+    值得注意的是，前面的轮询 poll() 方法原型也开始需要一些小小的改变：
+    int (*poll)(struct napi_struct *napi, int budget);
+    大部分 NAPI 相关的函数也需要改变之前的原型，下面是打开轮询功能的 API：
+    void netif_rx_schedule(struct net_device *dev, 
+                           struct napi_struct *napi);  // 启动NET_RX_SOFTIRQ来轮询poll网卡上的数据
+    /* ...or... */ 
+    int netif_rx_schedule_prep(struct net_device *dev, 
+			       struct napi_struct *napi); 
+    void __netif_rx_schedule(struct net_device *dev, 
+		       	     struct napi_struct *napi);
+    轮询功能的关闭则需要使用 :
+    void netif_rx_complete(struct net_device *dev, 
+			   struct napi_struct *napi);
+    因为可能存在多个 napi_struct 的实例，要求每个实例能够独立的使能或者禁止，因此，需要驱动作者保证在网卡接口关闭时，禁止所有的 napi_struct 的实例。
+    函数 netif_poll_enable() 和 netif_poll_disable() 不再需要，因为轮询管理不再和 net_device 直接管理，取而代之的是下面的两个函数：
+    void napi_enable(struct napi *napi); 
+    void napi_disable(struct napi *napi);
+
+
+
+2016.7.12
+  MAC层数据实体在接收到MSDU后，将构造MPDU（MAC层协议数据单元），具体方法是在MSDU前加上帧头MHR，在MSDU后加上帧尾，即MPDU=MHR+MSDU+MFR
+=================================================================================================
+通信百科：
+   MSDU - MAC Service Data Unit，MAC业务数据单元;　　
+   在无线网络安全中，MSDU经过添加完整性校验MIC、分帧、添加IV、加密、添加MAC头部后，成为MPDU（MAC Protocol Data Unit，MAC协议数据单元）.
+=================================================================================================
+   MSDU是MAC层服务数据单元，表示MAC层载荷；当MAC层协议数据单元(MPDU)被发送到物理层(PHY)时，它便成为了物理层服务数据单元(PSDU)。
+   access category (AC)
+
+
+2016.8.19
+    接受灵敏度
+    一般接受灵敏度达到规范就可以了。
+    将天线放置在电磁场中，由于场的感应而在天线内部产生交变电流并在其终端产生交变电压，空间电磁波都是辐射到整个球面上的，接收天线在球面上只是一个点，接收功率等于天线面积除以总面积， 因此，天线的接受面积越大，接受到的能量越大。
+    另外接收到的数据还收到噪声的干扰，噪声分为内部的和外部的，外部的主要是与2.4G设备同频的设备产生的干扰。
+    
+    信噪比（S/N）＝log〔信号功率密度/噪声功率密度〕
+    a ＝log〔信号功率密度〕－log〔噪声功率密度〕
+    例如，接收端的信号功率密度为－63dBm，噪声的信号功率密度为－95dBm，则： 
+    信噪比（S/N）＝（－63dBm）－（－95dBm）＝32dB 
+    root@gemini:/ # iwconfig wlan0                                                 
+    wlan0     Qcom:802.11n  ESSID:"Xiaomi_0621_5G"  
+              Mode:Managed  Frequency:5.805 GHz  Access Point: 8C:BE:BE:10:06:23   
+              Bit Rate=234 Mb/s   Tx-Power=19 dBm   
+              RTS thr=2346 B   Fragment thr=8000 B   
+              Encryption key:D600-FBA4-DC60-1798-4B70-495E-D258-3A86-0970-1796-62AE-832A-AB59-0E82-B9BE-E170 [2]   Security mode:restricted
+              Link Quality=38/0  Signal level=-58 dBm  Noise level=-96 dBm
+              Rx invalid nwid:0  Rx invalid crypt:0  Rx invalid frag:0
+              Tx excessive retries:0  Invalid misc:0   Missed beacon:0
+
+    
+    
+2016.9.8
+
+    802.1X  EAPol和EAP
+    EAP是Extensible Authentication Protocol的缩写，EAPOL就是(EAP OVER LAN )基于局域网的扩展认证协议。 EAPOL是基于802.1X网络访问认证技术发展而来的。802.1X 的实现设计三个部分，请求者系统、认证系统和认证服务器系统。因此EAPOL也是。当认证系统工作于中继方式时，认证系统与认证服务器之间也运行EAP协议，EAP帧中封装认证数据，将该协议承载在其它高层次协议中(如 RADIUS)，以便穿越复杂的网络到达认证服务器;当认证系统工作于终结方式时，认证系统终结EAPoL消息，并转换为其它认证协议(如 RADIUS)，传递用户认证信息给认证服务器系统。
+    认证系统每个物理端口内部包含有受控端口和非受控端口。非受控端口始终处于双向连通状态，主要用来传递EAPoL协议帧，可随时保证接收认证请求者发出的EAPoL认证报文;受控端口只有在认证通过的状态下才打开，用于传递网络资源和服务。
+整个802.1X的认证过程可以描述如下
+    (1) 客户端向接入设备发送一个EAPoL-Start报文，开始802.1X认证接入;
+    (2) 接入设备向客户端发送EAP-Request/Identity报文，要求客户端将用户名送上来;
+    (3) 客户端回应一个EAP-Response/Identity给接入设备的请求，其中包括用户名;
+    (4) 接入设备将EAP-Response/Identity报文封装到RADIUS Access-Request报文中，发送给认证服务器;
+    (5) 认证服务器产生一个Challenge，通过接入设备将RADIUS Access-Challenge报文发送给接入设备，其中包含有EAP-Request/MD5-Challenge;
+    (6) 接入设备通过EAP-Request/MD5-Challenge发送给客户端，要求客户端进行认证
+    (7) 客户端收到EAP-Request/MD5-Challenge报文后，将密码和Challenge做MD5算法后的Challenged-Pass-word，在EAP-Response/MD5-Challenge回应给接入设备
+    (8) 接入设备将Challenge，Challenged Password和用户名一起送到RADIUS服务器，由RADIUS服务器进行认证
+    (9) RADIUS服务器根据用户信息，做MD5算法，判断用户是否合法，然后回应认证成功/失败报文到接入设备。如果成功，携带协商参数，以及用户的相关业务属性给用户授权。如果认证失败，则流程到此结束;
+    (10) 如果认证通过，用户通过标准的DHCP协议 (可以是DHCP Relay) ，通过接入设备获取规划的IP地址;
+    (11) 如果认证通过，接入设备发起计费开始请求给RADIUS用户认证服务器;
+    (12)RADIUS用户认证服务器回应计费开始请求报文。用户上线完毕
+
+    (1) Supplicant发送一个EAPoL-Start报文发起认证过程。
+    (2) Authenticator收到EAPoL-Start后，发送一个EAP-Request报文响应Supplicant的认证请求，请求用户ID。
+    (3) Supplicant以一个EAP-Response报文响应EAP-Request，将用户ID封装在EAP报文中发给Authenticator。
+    (4) Authenticator将Supplicant送来的EAP-Request报文与自己的NAS IP、NAS Port等相关信息一起封装在RADIUS Access-Request报文中发给认证服务器（Authentication Server）。
+    (5) 认证服务器收到RADIUS Access-Request报文后，将用户ID提取出来在数据库中进行查找。如果找不到该用户ID，则直接丢弃该报文；如果该用户ID存在，认证服务器会提取出用户的密码等信息，用一个随机生成的加密字进行MD5加密，生成密文。同时，将这个随机加密字封装在一个EAP-Challenge Request报文中，再将该EAP报文封装在RADIUS Access-Challenge报文的EAP-Message属性中发给Authenticator。
+    (6) Authenticator收到RADIUS Access-Challenge报文后，将封装在该报文中的EAP-Challenge Request报文发送给Supplicant。
+    (7) Supplicant用认证服务器发来的随机加密字对用户名密码等信息进行相同的MD5加密运算生成密文，将密文封装在一个EAP-Challenge Response报文中发给Authenticator。
+    (8) Authenticator收到EAP-Challenge Response报文后，将其封装在一个RADIUS Access-Request报文的EAP-Message属性中发给认证服务器。
+    (9) 认证服务器拆开封装，将Supplicant发回的密文与自己在第（5）步中生成的密文进行对比。如果不一致，则认证失败，服务器将返回一条RADIUS Access-Reject信息，同时保持端口关闭状态；如果一致，则认证通过，服务器将一条EAP-Success消息封装在RADIUS Access-Accept报文的属性中发送给Authenticator。
+    (10) Authenticator在接到认证服务器发来的RADIUS Access-Accept之后，将端口状态更改为“已授权”，同时将RADIUS Access-Accept中的EAP-Success报文拆出来发送给Supplicant。
+    (11) Authenticator向认证服务器发送一个RADIUS Accounting-Request（Start）报文，申请开始计账。
+    (12) 认证服务器开始记账，向Authenticator返回RADIUS Accounting-Response报文。
+    (13) 用户下线时，Supplicant向Authenticator发送EAPOL-Logoff报文。
+    (14) Authenticator向认证服务器发送RADIUS Accounting-Request（Stop）请求。
+    (15) 认证服务器收到Authenticator送来的停止记账请求后停止记账，同时发送一条RADIUSAccounting-Response响应。
+    (16) Authenticator发送一条EAPoL Failure消息给Supplicant，同时将端口状态置为“未授权”。
+    
+    Personal模式不需要RADIUS服务器参与。AP和STA双方的Key属于PSK，即事先就配置好了。Enterprise模式下，STA、AP和RAIDUS的PMK通过多次EAPOL消息来获取。获取的方法和具体的EAP Method有关。显然，相比Personal模式，这种方式更加安全，但其耗费的时间也较长。  
+   
+    认证四次握手的过程， 四次握手过程中，交换的都是EAPol_KEY类型的数据，数据包括包头和payload, palyload就是wpa_ie信息，也就是携带的信息。
+    格式:
+    struct wpa_eapol_key {
+	    u8 type;
+	    /* Note: key_info, key_length, and key_data_length are unaligned */
+	    u8 key_info[2]; /* big endian */
+	    u8 key_length[2]; /* big endian */
+	    u8 replay_counter[WPA_REPLAY_COUNTER_LEN];
+	    u8 key_nonce[WPA_NONCE_LEN];
+	    u8 key_iv[16];
+	    u8 key_rsc[WPA_KEY_RSC_LEN];
+	    u8 key_id[8]; /* Reserved in IEEE 802.11i/RSN */
+	    u8 key_mic[16];
+	    u8 key_data_length[2]; /* big endian */
+	    /* followed by key_data_length bytes of key_data */
+    } STRUCT_PACKED;
+    
+    后面会紧跟wpa_ie的信息，key_data_length就是wpa_ie的长度， 第一次没有key_mic数据，其他的三次都有key_mic数据，第一次和第二次的wpa_ie数据都是未加密的，第三次开始，wpa_ie数据开始使用AES算法加密， 密钥是KEK， key也就是EAPOL消息加密使用的key。 GTK用于多播的数据加密，PTK用户单播的数据加密。
+
+连接过程:
+    1.  Supplicant -------------> AP
+        Supplicant以open_system的方式发送Authticate帧到AP
+    2.  AP --------> Supplicant
+        AP回复Authticate成功到supplicant
+    3.  Supplicant ------> AP
+        Supplicant发送Association Request到AP
+    4.  AP -----> Supplicant
+        AP 回复Association response到Supplicant
+    5.  发送ADDBA协商Block ACK信息
+    6.  开始四次握手
+
+    四次握手过程
+    1/4：Authenticator -> Supplicant
+        Authenticator把ANonce送给Supplicant。Supplicant收到1/4后，就有了生成PTK的所有元素。因为1/4里同时也包含了Authenticator的MAC地址。
+        PTK的生成需要 PMK ANONCES SNONCES  SupplicantMAC BSSID, PTK生成分成三部分: KCK（Key Confirmation Key）前24字节，KEK（Key Encryption Key）32字节，TK（Temporal Key）最后32字节。其实Data Encr Key和Data MIC Key合起来就是前面提到的TK。而EAPOL Encr Key和MIC Key分别对应前面的KEK和KCK。
+    2/4：Supplicant -> Authenticator
+       Supplicant计算出PTK，把SNonce和自己的MAC地址送给Authenticator。同时，从2/4报文开始，后面的每个报文都会有MIC， MIC的生成是利用KCK, 也就是EAPol MIC key进行通过HMAC-SHA1(带密码的哈希)计算出来的， 应该主要是为了防止篡改， 1/4没有。
+     
+    3/4：Authenticator -> Supplicant
+        Authenticator向Supplicant证明自己有有效的，同样有MIC加入其中。 此时AP会将GTK加密发给supplicant, GTK用于多播的数据加密，PTK用户单播的数据加密。
+    
+    4/4：Supplicant -> Authenticator
+        仅是对3/4的一个ACK。说明PTK已经装好，后面的数据可以加密了。这个步骤不发送任何wpa_ie的数据，仅仅发送EAPOL消息过去即可。
+    
+    第四步之后，将PTK生成的数据中TK设置到driver中，wpa_supplicant_install_ptk， 然后进入WPA_GROUP_HANDSHAKE, 由于我们在3次的时候AP已经将GTK发送过来，所以，跳过GROUP_HANDSHAKE，认证成功， 结束。
+    
+    
+    
+2016.10.13
+    ipv6
+    IPv6的128位地址通常写成8组，每组为四个十六进制数的形式。比如：AD80:0000:0000:0000:ABAA:0000:00C2:0002， 零压缩法可以用来缩减其长度。如果几个连续段位的值都是0，那么这些0就可以简单的以::来表示，上述地址就可写成AD80::ABAA:0000:00C2:0002， 这里要注意的是只能简化连续的段位的0，其前后的0都要保留，比如AD80的最后的这个0，不能被简化。还有这个只能用一次，在上例中的ABAA后面的0000就不能再次简化。
+    IPv4映像地址
+    比如::ffff:192.168.89.9，是0000:0000:0000:0000:0000:ffff:c0a8:5909的简化写法。IPv4映像地址布局如下：| 80bits |16 | 32bits |等价于0000···0000 | FFFF | IPv4 address |。
+    IPv6寻址模式
+    1. 可聚集全球单点传送地址结构： 全球单播地址相当于IPv4的公网地址，地址的前3位格式前缀(001)， 用于区分其他地址类型；TLA ID表示顶级聚合体，NLAID表示下级聚合体, 这两个都是运营商管理的路由，SLA ID表示节点级聚合体是本地站点管理的16位子网ID，8位的Res字节段是以备将来TLA或NLA扩充之用的为保留位。64位接口ID是用于识别SLA网络中某个接口的唯一性。
+         13位  8位  24位   16位    64位
+    001 TLAID RES  NLAID  SLAID  INTERFACEID
+    2. 链路本地单播地址结构， 这个与站点本地单播地址的区别就是他不去分子网，就是一个地址而已，类似于IPV4的子网掩码为255.255.255.254
+    链路本地单播地址是处于可聚集全球单播地址外的，只限于直连链路，是单网络链路上给的主机编号，作用是进行链路上主机的通信。当你配置一个单播IPv6地址的时候，接口上会自动配置一个链路本地单播地址。格式为：1111111010（前10 bit为这个定值，换成16进制为FE80）00000......00000（接着这54 bit为0），剩下的64 bit为接口地址。网络中路由器对具有链路本地地址的包是不处理的，即路由器不支持链路本地地址的通信。
+    10位             54位         64位
+    1111111010 0000000:0000000 INTERFACEID
+    3. 站点本地单播地址, 这个子网标识符就相当于IPV4网络中的子网掩码，进行子网的划分。
+    站点本地单播地址用于对特定范围的通信也可说成是规定站点内的通信，不能与站点外地址通信，也不能直接连接到全球Internet。类似于IPv4的企业专用地址Intranet，站点本地单播地址格式为：111111011（ 前100 bit为这个定值， 换成16进制为FEC0） 00000......00000（ 接着这38 bit为0） 后16 bit为子网标识符，剩下的64 bit为接口地址。站点本地单播地址结构如图3所示。
+    10位               38位        16位     64位
+    1111111010 0000000:0000000 子网标识符 INTERFACEID
+    所以根据上面的描述，同一站点的主机要想直接通信（不经过路由器），还是要求前缀相同才行的。
+    fe80::3aa4:edff:feb8:5ce8/64， 这个地址里面的64就表示了前缀的长度为64位，剩下的是接口ID的长度。有点像将IPV4的子网掩码和IP写到了一块的感觉。
+    
+    IPV6 的地址自动配置分为无状态自动配置(NDP)和有状态自动配置(DHCPv6)。
+    NDP的RDNSS选项可以分配DNS， RA广播是广播路由器，也就是默认网关，网络前缀等信息，因此，NDP就可以实现网络地址的自动配置。
+    DHCPv6可以扩展配置网络的其他信息。
+    
+    DNS发现流程
+      RDNSS选项的处理流程和ND选项流程类似，当接收到RA后才处理，如图2所示。
+
+      具体如下：
+      步骤(a) : IPv6主机发送RS (Router Solicitation)消息来得到RA消息。
+      步骤 (b) : 路由器发送RA消息，包含用来自动发现地址的前缀信息选项和DNS配置的RDNSS选项。
+      步骤 (c) : 如果未含前缀信息选项和RDNSS选项，跳到步骤 (f)。
+      步骤 (d) : 如果有前缀信息选项，IPv6主机根据前缀进行无状态自动地址配置，如果自动配置失败，转步骤(f)。
+      步骤 (e) : 如果含RDNSS选项，IPv6主机将RDNSS地址同时存储在DNS服务器缓冲和解析配置文件中。
+      步骤 (f) : 如果M (Managed address configuration)位置位，IPv6主机必须使用DHCPv6进行有状态的自动地址配置， 如果不包含RDNSS选项，IPv6主机也可使用DHCPv6进行DNS的配置，而不管O标志是否置位。
+    是否启动DHCPv6 主要是通过RA的flags里面的M和Obit来决定的， M: Managed address configuration, O: other configuration.
+      M = 0, O = 0  : Client uses RA to get non-link-local address and other settings. Even DHCPv6 server exists, client ignores it.
+      M = 1, O = 0  : Client uses DHCPv6 for both address and other configuration settings. This combination is known as DHCPv6 stateful, in which
+      M = 1, O = 1  : DHCPv6 is assigning stateful address to client. If RA includes network prefix, client also gets stateless address.
+      M = 0, O = 1  : Client gets stateless address from RA. DHCPv6 only assign other configuration settings to client. This combination is known as DHCPv6 stateless.
+      
+    ipv6 router:
+    radvd: 实现路由断的RA的广播发送，如果将Linux配置为router，需要启动这个server
+    
+2016.11.4  Linux 高级流量控制
+
+   参考:  http://blog.csdn.net/zhaobryant/article/details/38797739
+         http://man7.org/linux/man-pages/man8/tc-fw.8.html
+         http://www.ibm.com/developerworks/cn/linux/1412_xiehy_tc/
+         http://www.tldp.org/HOWTO/html_single/Traffic-Control-HOWTO/
+         http://www.lartc.org/manpages/tc-prio.html
+         
+
+
+
+2017.9.20
+vendor_elements=DD0A0017F206010103010000
+
+MGMT_TX DA BSSID freq=0 wait_time=500 no_cck=500 action=0409506F9A090ADD01506f9a09
+
+MGMT_TX 28:6c:07:64:3d:03 28:6c:07:64:3d:03 freq=0 wait_time=500 no_cck=500 action=0409506F9A090ADD01506f9a09
+
+MGMT_TX 8c:be:be:10:06:23 8c:be:be:10:06:23 freq=0 wait_time=500 no_cck=500 action=0409506F9A090ADD01506f9a09
+
+
+
+Qos:
+   
+   tc qdisc add dev wlan0 root handle 1: prio
+   tc qdisc add dev wlan0 parent 1:1 handle 10: prio
+   tc filter add dev wlan0 parent 1:0 protocol ip prio 1 handle 1011 fw classid 1:1
+   iptables -A bw_OUTPUT -m owner --uid-owner 10118 -j MARK --set-mark 1011
+   
+Shaping 1:
+   tc qdisc add dev wlan0 root handle 1: prio
+   tc qdisc add dev wlan0 parent 1:2 handle 20: htb default 11
+   tc class add dev wlan0 parent 20: classid 20:1 htb rate 4Mbit
+   tc class add dev wlan0 parent 20:1 classid 20:11 htb rate 50Kbit
+
+
+Shaping 2:
+   tc qdisc del dev wlan0 root
+   tc qdisc add dev wlan0 root handle 1: htb default 12
+   tc class add dev wlan0 parent 1: classid 1:1 htb rate 180Kbit burst 1 cburst 1
+   tc class add dev wlan0 parent 1:1 classid 1:11 htb rate 180Kbit ceil 100Mbit burst 1500000 cburst 1500000
+   tc class add dev wlan0 parent 1:1 classid 1:12 htb rate 8bit ceil 180Kbit burst 1 cburst 1 prio 2
+   tc filter add dev wlan0 parent 1:0 protocol ip prio 1 handle 1011 fw classid 1:11
+   
+   iptables -A OUTPUT -m owner --uid-owner 0 -j MARK --set-mark 1011
+   iptables -A OUTPUT -m owner --uid-owner 1013 -j MARK --set-mark 1011
+   iptables -A OUTPUT -m owner --uid-owner 10015 -j MARK --set-mark 1011
+   iptables -A OUTPUT -m owner --uid-owner 10123 -j MARK --set-mark 1011
+   
+Shaping 3: 
+   
+   ifconfig ifb0 up
+   tc qdisc del dev ifb0 root
+   tc qdisc add dev ifb0 root handle 1: htb default 12
+   tc class add dev ifb0 parent 1: classid 1:1 htb rate 3Mbit ceil 3Mbit burst 1 cburst 1
+   tc class add dev ifb0 parent 1: classid 1:11 htb rate 4Mbit ceil 4Mbit burst 1500000 cburst 1500000
+   tc class add dev ifb0 parent 1:1 classid 1:12 htb rate 8bit ceil 3Mbit burst 1 cburst 1 prio 2
+   tc filter add dev ifb0 parent 1:0 protocol ip prio 1 handle 1011 fw classid 1:11
+   tc qdisc add dev wlan0 ingress
+   tc filter add dev wlan0 parent ffff: protocol ip u32 match u32 0 0 action connmark action mirred egress redirect dev ifb0   
+   iptables -t mangle -A OUTPUT -m owner --uid-owner 0 -j CONNMARK --set-mark 1011
+   iptables -t mangle -A OUTPUT -m owner --uid-owner 1000 -j CONNMARK --set-mark 1011
+   iptables -t mangle -A INPUT -m owner --uid-owner 0 -j CONNMARK --set-mark 1011
+   
+
+--------------------------------------------------------------------------------------------------------------
+Shaping 5: 
+   
+   ifconfig ifb0 up
+   tc qdisc del dev ifb0 root
+   tc qdisc add dev ifb0 root handle 1: htb default 1
+   tc class add dev ifb0 parent 1: classid 1:1 htb rate 3Mbit ceil 5Mbit burst 2M cburst 2M
+   tc qdisc add dev ifb0 parent 1:1 handle 10: prio
+   tc filter add dev ifb0 parent 10: protocol ip prio 1 handle 1011 fw classid 10:1
+   
+   tc qdisc add dev wlan0 ingress
+   tc filter add dev wlan0 parent ffff: protocol ip u32 match u32 0 0 action connmark action mirred egress redirect dev ifb0   
+   iptables -t mangle -A OUTPUT -m owner --uid-owner 0 -j CONNMARK --set-mark 1011
+   iptables -t mangle -A INPUT -m owner --uid-owner 0 -j CONNMARK --set-mark 1011
+----------------------------------------------------------------------------------------------------------------------------
+
+Shaping 4:
+   tc qdisc add dev wlan0 root handle 1: mq
+   tc filter add dev wlan0 parent 1: handle 800 protocol ip prio 1 flow map key cgroup-classid baseclass 1:10
+   
+   tc qdisc del dev wlan0 root
+   tc qdisc add dev wlan0 root handle 1: htb default 2
+   tc class add dev wlan0 parent 1: classid 1:1 htb rate 3Mbit
+   tc class add dev wlan0 parent 1: classid 1:2 htb rate 1Mbit
+   tc filter add dev wlan0 parent 1: protocol ip prio 1 handle 1011 cgroup
+
+
+tc qdisc add dev wlan0 root handle 1: mqprio num_tc 4 map  2 2 1 0 0 0 0 queues 2@0 1@2 1@3 hw 0
+
+
+iptables -t mangle -I PREROUTING 1 -j LOG --log-prefix "[iptables_in_start] " --log-level 4 --log-uid
+iptables -t mangle -I PREROUTING -j LOG --log-prefix "[iptables_in_end] " --log-level 4 --log-uid
+iptables -I OUTPUT 1 -j LOG --log-prefix "[iptables_out_start] " --log-level 4 --log-uid
+iptables -A OUTPUT -j LOG --log-prefix "[iptables_out_end] " --log-level 4 --log-uid
+
+iptables -t mangle -A OUTPUT -m mark --mark 0x100000/0x100000 -j LOG --log-prefix "[MARK DNS]" --log-level 4 --log-uid
+
+action
+tc qdisc del dev wlan0 root
+tc qdisc add dev wlan0 root handle 1: multiq
+tc filter add dev wlan0 parent 1: u32 match mark 0x1000001 0xFFFFFFFF action skbedit queue_mapping 0
+iptables -t mangle -I OUTPUT -m owner --uid-owner 10127 -j MARK --set-mark 0x1000001
+
+iptables -t mangle -A OUTPUT -m owner --uid-owner 10073 -j MARK --set-mark 0x1000001
+iptables -t mangle -I OUTPUT -m owner --uid-owner 10127 -j MARK --set-mark 0x1000001
+
+
+tc filter add dev wlan0 parent 1: basic match 'meta(priority gt 16)' action skbedit queue_mapping 1
+
+
+
+iptables -t mangle -X fg_uid_filter_chain
+iptables -t mangle -N fg_uid_filter_chain
+iptables -t mangle -X fg_uid_rule_chain
+iptables -t mangle -N fg_uid_rule_chain
+
+iptables -t mangle -A OUTPUT -o wlan0 -p tcp -j fg_uid_filter_chain
+iptables -t mangle -A fg_uid_filter_chain -m owner --uid-owner 10137 -j fg_uid_rule_chain
+iptables -t mangle -A fg_uid_rule_chain -j CLASSIFY --set-class 0:6
+iptables -t mangle -A fg_uid_rule_chain -j IDLETIMER --timeout 1 --label 18 --send_nl_msg 1
+
+
+// 对于前台服务和前台APP进行放行
+iptables -t filter -X bg_dl_filter_chain
+iptables -t filter -N bg_dl_filter_chain
+iptables -t filter -I bg_dl_filter_chain -m owner --uid-owner 10137 -j RETURN
+iptables -t filter -I bg_dl_filter_chain -m owner --uid-owner 0-9999 -j RETURN
+iptables -t filter -D bg_dl_filter_chain -i wlan0 -m length --length 0:250 -j RETURN
+iptables -t filter -A bg_dl_filter_chain -m connbytes --connbytes 0:250 --connbytes-dir reply --connbytes-mode avgpkt -j RETURN
+iptables -t filter -A bg_dl_filter_chain -m recent --name bg_download --rcheck --seconds 60 --hitcount 2 -j DROP
+iptables -t filter -A bg_dl_filter_chain -m connbytes --connbytes 524288: --connbytes-dir both --connbytes-mode bytes -m recent --name bg_download --set
+
+
+
+
+iptables -t filter -A OUTPUT -o wlan0 -j bg_dl_filter_chain
+iptables -t filter -A INPUT  -i wlan0 -j bg_dl_filter_chain
+
 
 
 

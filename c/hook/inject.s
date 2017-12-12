@@ -15,11 +15,10 @@
 .global _saved_cpsr_s        @保存CPSR，以便执行完hook_init之后恢复环境
 .global _saved_r0_pc_s       @保存r0-r15，以便执行完hook_init之后恢复环境
 
-
 .data
 
 _inject_start_s:
-@ debug loop
+@debug loop
 3:
 @sub r1, r1, #0
 @B 3b
@@ -58,9 +57,6 @@ msr cpsr_cf, r1
 ldr sp, _saved_r0_pc_s            @恢复寄存器r0-r15
 ldmfd sp, {r0-pc}
 
-
-
-
 _dlopen_addr_s:                           @初始化_dlopen_addr_s
 .word 0x11111111
 
@@ -88,10 +84,8 @@ _saved_cpsr_s:
 _saved_r0_pc_s:
 .word 0x11111111
 
-
 _inject_end_s:                     @代码结束地址
 
 .space 0x400, 0                    @代码段空间大小
 
 .end
-
